@@ -1,5 +1,5 @@
 """
-Base Module of djrest containing interfaces to create rest routes
+Base Module of djsonrest containing interfaces to create rest routes
 """
 
 import logging

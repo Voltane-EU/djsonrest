@@ -1,19 +1,19 @@
 """
-Exceptions of djREST
+Exceptions of djsonrest
 """
 
 from djutils.exceptions import Error
 
 
-class DjRESTError(Error):
+class DJsonRestError(Error):
     """
-    Base Error of djREST
+    Base Error of djsonrest
     """
 
 
-class InvalidRouteError(DjRESTError):
+class InvalidRouteError(DJsonRestError):
     pass
 
 
-class AuthenticationError(DjRESTError):
+class AuthenticationError(DJsonRestError):
     pass

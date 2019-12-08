@@ -19,7 +19,7 @@ class Authentication:
     def authenticate(self, request):
         """
         Check the authentication of the current request.
-        Raise a djrest.exceptions.AuthenticationError if it is invalid.
+        Raise a djsonrest.exceptions.AuthenticationError if it is invalid.
         """
         raise NotImplementedError
 
