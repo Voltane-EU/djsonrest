@@ -2,6 +2,16 @@
 Authentication against the rest service.
 """
 
+import logging
+from jose import jwt
+from django.conf import settings
+from django.utils.translation import gettext_noop
+from . import exceptions, models
+
+
+_logger = logging.getLogger(__name__)
+
+
 class Authentication:
     """
     Base of all authentication classes.
@@ -20,6 +30,8 @@ class Authentication:
         """
         Check the authentication of the current request.
         Raise a djsonrest.exceptions.AuthenticationError if it is invalid.
+        It may return anything, but it will never be returned to the user directly,
+        but it can be used to create extendable classes.
         """
         raise NotImplementedError
 
@@ -30,5 +42,48 @@ class Public(Authentication):
 
 
 class JWTAuthentication(Authentication):
+    audience = None
+    public_key_file = None
+    private_key_file = None
+    algorithm = 'ES512'
+    access_token = None
+    issuer = settings.TITLE
+
+    @property
+    def public_key(self):
+        with open(self.public_key_file) as file:
+            self.public_key = file.read()
+
+    @property
+    def private_key(self):
+        with open(self.private_key_file) as file:
+            self.private_key = file.read()
+
     def authenticate(self, request):
-        pass
+        token = None
+
+        try:
+            decoded_token = jwt.decode(
+                token=token,
+                key=self.public_key,
+                algorithms=self.algorithm,
+                audience=self.audience,
+                issuer=self.issuer,
+                access_token=self.access_token,
+            )
+        except jwt.ExpiredSignatureError as error:
+            _logger.debug("Tried authentication with an expired token: %e", error)
+            raise exceptions.AuthenticationError(gettext_noop('Session expired'), code='session_expired') from error
+        except jwt.JWTError as error:
+            _logger.warning("Tried authentication with an invalid token: %e", error)
+            raise exceptions.AuthenticationError(gettext_noop('Invalid authentication token'), code='signature_invalid') from error
+
+        return decoded_token
+
+
+class JWTConsumer(JWTAuthentication):
+    audience = 'consumer'
+
+    def authenticate(self, request):
+        decoded_token = super().authenticate(request)
+        return decoded_token
