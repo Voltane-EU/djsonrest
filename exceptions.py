@@ -16,4 +16,4 @@ class InvalidRouteError(DJsonRestError):
 
 
 class AuthenticationError(DJsonRestError):
-    pass
+    status_code = 401

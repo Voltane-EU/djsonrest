@@ -6,6 +6,7 @@ import logging
 from jose import jwt
 from django.conf import settings
 from django.utils.translation import gettext_noop
+from django.core.exceptions import ObjectDoesNotExist
 from . import exceptions, models
 
 
@@ -86,4 +87,11 @@ class JWTConsumer(JWTAuthentication):
 
     def authenticate(self, request):
         decoded_token = super().authenticate(request)
+        try:
+            consumer = models.AuthConsumer.objects.get()
+        except ObjectDoesNotExist as error:
+            raise exceptions.AuthenticationError(gettext_noop('Invalid consumer'), code='consumer_invalid') from error
+
+        # TODO: Check session (maybe optional, configured by consumer)
+
         return decoded_token
