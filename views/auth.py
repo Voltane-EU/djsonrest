@@ -1,0 +1,1 @@
+from djsonrest import rest
