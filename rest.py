@@ -227,7 +227,7 @@ def route(
 
     def rest_route_wrapper(route_func):
         rest_route = RESTRouteVersionMethod(route_func, path, version, method, auth, cache, name)
-        route_func._rest_route = rest_route
-        return rest_route
+        route_func.rest_route = rest_route
+        return route_func
 
     return rest_route_wrapper
