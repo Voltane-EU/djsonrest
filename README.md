@@ -13,7 +13,7 @@ pip install djsonrest
 `djutils`
 
 ## Usage
-Add `djsonrest` to `INSTALLED_APPS`.
+Add `djsonrest` to the end of `INSTALLED_APPS`.
 ```python
 INSTALLED_APPS = [
     ...

@@ -13,15 +13,15 @@ _logger = logging.getLogger(__name__)
 rest_routes = {}
 
 
-class RESTRouteMethod:
+class RESTRouteVersionMethod:
     HTTP_METHODS = ('GET', 'POST', 'PUT', 'PATCH', 'DELETE')
 
     def __init__(
             self,
             route_func: callable,
-            method: str = 'GET',
             path: str = "",
             version=None,
+            method: str = 'GET',
             auth: rest_auth.Authentication = rest_auth.Public,
             name: str = None,
             cache: callable = None,
@@ -38,12 +38,15 @@ class RESTRouteMethod:
             version = (version,)
 
         self.route_func = route_func
-        self.method = method
         self.path = path
         self.version = version
+        self.method = method
         self.auth = auth(self)
         self.name = name
         self.cache = cache
+
+        self.route_version = RESTRoute.get_route(self.path).get_version_route(self.version)
+        self.route_version.register_method_route(self)
 
         _logger.debug("Registered new rest route %r", self)
 
@@ -63,7 +66,7 @@ class RESTRouteMethod:
         return url_path(self.path, self, name=self.name)
 
 
-class RESTRoute(View):
+class RESTRouteVersion(View):
     get_cache = None
 
     def __init__(
@@ -76,8 +79,7 @@ class RESTRoute(View):
 
         self.path = path
         self.version = version
-
-        rest_routes[(self.path, self.version,)] = self
+        self.route = RESTRoute.get_route(self.path)
 
     def head(self, *args, **kwargs):
         if not self.get_cache:
@@ -85,26 +87,67 @@ class RESTRoute(View):
 
         return self.get_cache()
 
-    @classmethod
-    def register_method_route(cls, method_route: RESTRouteMethod):
-        try:
-            rest_route = rest_routes[(method_route.path, method_route.version)]
-        except KeyError:
-            rest_route = cls(method_route.path, method_route.version)
-
+    def register_method_route(self, method_route: RESTRouteVersionMethod):
         if hasattr(method_route.method.lower()):
             raise exceptions.InvalidRouteError('The method %s is already defined for this path and version' % method_route.method)
 
-        setattr(rest_route, method_route.method.lower(), method_route)
+        setattr(self, method_route.method.lower(), method_route)
 
         if method_route.method == "GET" and method_route.cache:
-            rest_route.get_cache = method_route.cache
+            self.get_cache = method_route.cache
+
+
+class RESTRoute:
+    @staticmethod
+    def pass_to_version(method: str):
+        def get_version_method(self, version, *args, **kwargs):
+            version_route = self.get_version_route(1.0)
+            return getattr(version_route, method)(*args, **kwargs)
+
+        return get_version_method
+
+    @classmethod
+    def get_route(cls, path):
+        try:
+            return rest_routes[path]
+        except KeyError:
+            return cls(path)
+
+    def __init__(self, path: str):
+        self.path = path
+        self.version_routes = {}
+
+        rest_routes[self.path] = self
+
+    def get_version_route(self, version: tuple):
+        try:
+            return self.version_routes[version]
+        except KeyError:
+            return RESTRouteVersion(self.path, version)
+
+
+    def find_matching_version_route(self, version: float):
+        version_routes = list(filter(
+            lambda vers_nr: (len(vers_nr) == 1 and vers_nr[0] <= version) or (len(vers_nr) == 2 and vers_nr[0] <= version <= vers_nr[1]),
+            self.version_routes.keys()
+        ))
+        if len(version_routes) > 1:
+            raise exceptions.InvalidRouteError("Found multiple routes for version %f" % version)
+
+        return version_routes[0]
+
+    head = pass_to_version('head')
+    get = pass_to_version('get')
+    post = pass_to_version('post')
+    put = pass_to_version('put')
+    patch = pass_to_version('patch')
+    delete = pass_to_version('delete')
 
 
 def route(
-        method: str = 'GET',
         path: str = "",
-        version: float = None,
+        version=None,
+        method: str = 'GET',
         auth: rest_auth.Authentication = rest_auth.Public,
         name: str = None,
         cache: callable = None,
@@ -114,12 +157,15 @@ def route(
     Params:
     method: The HTTP Method
     path: URL of the REST endpoint after the default path prefix and version number
+    version: A tuple containing the minimum and maximum version number for this endpoint (example: (min, max,)).
+             Can be a single float or int to only define the minimum version number.
+             The version numbers may have a maximum of 2 decimal places.
     auth: Used authentication mechanism
     name: optional name for the django route
     cache: optional callable, only for GET requests, to determine if the ressource has changed
     """
     def rest_route_wrapper(route_func):
-        rest_route = RESTRouteMethod(route_func, path, method, version, auth, cache)
+        rest_route = RESTRouteVersionMethod(route_func, path, version, method, auth, cache)
         route_func._rest_route = rest_route
         return rest_route
 
