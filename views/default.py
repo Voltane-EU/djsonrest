@@ -3,7 +3,7 @@ from djsonrest import rest
 
 
 @rest.route('/', version=1.0, method='GET', name='default')
-def test(request, *args, **kwargs):
+def default(request, *args, **kwargs):
     return {
         "name": getattr(settings, "TITLE", None),
         "author": getattr(settings, "AUTHOR", None),
