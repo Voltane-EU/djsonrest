@@ -4,13 +4,30 @@ Base Module of djsonrest containing interfaces to create rest routes
 
 import logging
 
-from django.urls import path as url_path
+from django.urls import path as url_path, register_converter
 from django.views.generic import View
+from django.http.response import HttpResponse
+from djutils.http import exceptions_to_http, respond_json
 from . import exceptions, auth as rest_auth
 
 
 _logger = logging.getLogger(__name__)
 rest_routes = {}
+
+
+class RESTVersionConverter:
+    regex = r'\d\.\d{1,2}'
+
+    @staticmethod
+    def to_python(value):
+        return float(value)
+
+    @staticmethod
+    def to_url(value):
+        return "%.2f" % value
+
+
+register_converter(RESTVersionConverter, 'rest_version')
 
 
 class RESTRouteVersionMethod:
@@ -53,6 +70,8 @@ class RESTRouteVersionMethod:
     def __str__(self):
         return f"RESTRouteMethod<{self.method} {self.path}, version={self.version}, auth={self.auth}, name={self.name}>"
 
+    @exceptions_to_http(exceptions.Error, status_code=400)
+    @respond_json
     def __call__(self, request, *args, **kwargs):
         """
         Wrapper around the actual view function
@@ -60,13 +79,14 @@ class RESTRouteVersionMethod:
         self.auth.authenticate(request)
 
         route_result = self.route_func(request, *args, **kwargs)
-        return route_result
 
-    def to_path(self):
-        return url_path(self.path, self, name=self.name)
+        if 'data' in route_result:
+            return route_result
+
+        return {'data': route_result}
 
 
-class RESTRouteVersion(View):
+class RESTRouteVersion:
     get_cache = None
 
     def __init__(
@@ -77,9 +97,13 @@ class RESTRouteVersion(View):
         ):
         super().__init__(**kwargs)
 
+        if not isinstance(version, tuple) or not version:
+            raise exceptions.InvalidRouteError('Invalid version "%r". Has to be a tuple containing at least one float value' % version)
+
         self.path = path
         self.version = version
         self.route = RESTRoute.get_route(self.path)
+        self.route.version_routes[self.version] = self
 
     def head(self, *args, **kwargs):
         if not self.get_cache:
@@ -87,24 +111,31 @@ class RESTRouteVersion(View):
 
         return self.get_cache()
 
-    def register_method_route(self, method_route: RESTRouteVersionMethod):
-        if hasattr(method_route.method.lower()):
-            raise exceptions.InvalidRouteError('The method %s is already defined for this path and version' % method_route.method)
+    def _default_method_handler(self, *args, **kwargs):
+        return HttpResponse(status=405)
 
+    get = _default_method_handler
+    post = _default_method_handler
+    put = _default_method_handler
+    patch = _default_method_handler
+    delete = _default_method_handler
+
+    def register_method_route(self, method_route: RESTRouteVersionMethod):
         setattr(self, method_route.method.lower(), method_route)
 
         if method_route.method == "GET" and method_route.cache:
             self.get_cache = method_route.cache
 
 
-class RESTRoute:
-    @staticmethod
-    def pass_to_version(method: str):
-        def get_version_method(self, version, *args, **kwargs):
-            version_route = self.get_version_route(1.0)
-            return getattr(version_route, method)(*args, **kwargs)
+def _rest_route_pass_to_version(method: str):
+    def rest_version_route(self, *args, version=None, **kwargs):
+        version_route = self.rest_route.find_matching_version_route(version)
+        return getattr(version_route, method)(*args, **kwargs)
 
-        return get_version_method
+    return rest_version_route
+
+
+class RESTRoute:
 
     @classmethod
     def get_route(cls, path):
@@ -113,7 +144,7 @@ class RESTRoute:
         except KeyError:
             return cls(path)
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, **kwargs):
         self.path = path
         self.version_routes = {}
 
@@ -134,14 +165,25 @@ class RESTRoute:
         if len(version_routes) > 1:
             raise exceptions.InvalidRouteError("Found multiple routes for version %f" % version)
 
-        return version_routes[0]
+        return self.version_routes[version_routes[0]]
 
-    head = pass_to_version('head')
-    get = pass_to_version('get')
-    post = pass_to_version('post')
-    put = pass_to_version('put')
-    patch = pass_to_version('patch')
-    delete = pass_to_version('delete')
+    class RESTRouteView(View):
+        rest_route = None
+
+        def __init__(self, rest_route, **kwargs):
+            super().__init__(**kwargs)
+            self.rest_route = rest_route
+
+        head = _rest_route_pass_to_version('head')
+        get = _rest_route_pass_to_version('get')
+        post = _rest_route_pass_to_version('post')
+        put = _rest_route_pass_to_version('put')
+        patch = _rest_route_pass_to_version('patch')
+        delete = _rest_route_pass_to_version('delete')
+
+    def as_path(self, **kwargs):
+        path = "<rest_version:version>/%s" % self.path
+        return url_path(path, self.RESTRouteView.as_view(rest_route=self, **kwargs))
 
 
 def route(
@@ -164,6 +206,10 @@ def route(
     name: optional name for the django route
     cache: optional callable, only for GET requests, to determine if the ressource has changed
     """
+
+    if path.startswith("/"):
+        path = path[1:]
+
     def rest_route_wrapper(route_func):
         rest_route = RESTRouteVersionMethod(route_func, path, version, method, auth, cache)
         route_func._rest_route = rest_route
