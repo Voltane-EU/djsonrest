@@ -3,6 +3,7 @@ Base Module of djsonrest containing interfaces to create rest routes
 """
 
 import logging
+import json
 
 from django.urls import path as url_path, register_converter
 from django.views.generic import View
@@ -40,8 +41,8 @@ class RESTRouteVersionMethod:
             version=None,
             method: str = 'GET',
             auth: rest_auth.Authentication = rest_auth.Public,
-            name: str = None,
             cache: callable = None,
+            name: str = None,
         ):
         if not path:
             raise exceptions.InvalidRouteError('Undefined path for %r' % route_func)
@@ -59,10 +60,10 @@ class RESTRouteVersionMethod:
         self.version = version
         self.method = method
         self.auth = auth(self)
-        self.name = name
         self.cache = cache
+        self.name = name
 
-        self.route_version = RESTRoute.get_route(self.path).get_version_route(self.version)
+        self.route_version = RESTRoute.get_route(self.path).get_version_route(self.version, self.name)
         self.route_version.register_method_route(self)
 
         _logger.debug("Registered new rest route %r", self)
@@ -74,9 +75,17 @@ class RESTRouteVersionMethod:
     @respond_json
     def __call__(self, request, *args, **kwargs):
         """
-        Wrapper around the actual view function
+        Wrapper around the actual request method.
+        Performs authentication and loads the request body as json into request.body.
+        Returns a dict with 'data' containing the returned data from the request method,
+        if 'data' is not already present.
+        Also converts the response data to a JsonResponse using @djutils.http.respond_json
         """
         self.auth.authenticate(request)
+
+        # Load and replace the request body as json data
+        request.body_bytes = request.body
+        request.body = json.load(request.body)
 
         route_result = self.route_func(request, *args, **kwargs)
 
@@ -93,15 +102,14 @@ class RESTRouteVersion:
             self,
             path: str = "",
             version=None,
-            **kwargs,
+            name: str = None,
         ):
-        super().__init__(**kwargs)
-
         if not isinstance(version, tuple) or not version:
             raise exceptions.InvalidRouteError('Invalid version "%r". Has to be a tuple containing at least one float value' % version)
 
         self.path = path
         self.version = version
+        self.name = name
         self.route = RESTRoute.get_route(self.path)
         self.route.version_routes[self.version] = self
 
@@ -126,10 +134,15 @@ class RESTRouteVersion:
         if method_route.method == "GET" and method_route.cache:
             self.get_cache = method_route.cache
 
+        if method_route.name and not self.name:
+            self.name = method_route.name
+
 
 def _rest_route_pass_to_version(method: str):
     def rest_version_route(self, *args, version=None, **kwargs):
         version_route = self.rest_route.find_matching_version_route(version)
+        self.request.rest_version = version_route
+        self.request.rest_version_requested = version
         return getattr(version_route, method)(*args, **kwargs)
 
     return rest_version_route
@@ -144,17 +157,18 @@ class RESTRoute:
         except KeyError:
             return cls(path)
 
-    def __init__(self, path: str, **kwargs):
+    def __init__(self, path: str, name: str = None):
         self.path = path
+        self.name = name
         self.version_routes = {}
 
         rest_routes[self.path] = self
 
-    def get_version_route(self, version: tuple):
+    def get_version_route(self, version: tuple, name: str = None):
         try:
             return self.version_routes[version]
         except KeyError:
-            return RESTRouteVersion(self.path, version)
+            return RESTRouteVersion(self.path, version, name)
 
 
     def find_matching_version_route(self, version: float):
@@ -183,7 +197,7 @@ class RESTRoute:
 
     def as_path(self, **kwargs):
         path = "<rest_version:version>/%s" % self.path
-        return url_path(path, self.RESTRouteView.as_view(rest_route=self, **kwargs))
+        return url_path(path, self.RESTRouteView.as_view(rest_route=self, **kwargs), name=self.name)
 
 
 def route(
@@ -191,8 +205,8 @@ def route(
         version=None,
         method: str = 'GET',
         auth: rest_auth.Authentication = rest_auth.Public,
-        name: str = None,
         cache: callable = None,
+        name: str = None,
     ):
     """
     Declare a method as rest endpoint.
@@ -203,8 +217,8 @@ def route(
              Can be a single float or int to only define the minimum version number.
              The version numbers may have a maximum of 2 decimal places.
     auth: Used authentication mechanism
-    name: optional name for the django route
     cache: optional callable, only for GET requests, to determine if the ressource has changed
+    name: Optional name for the django route. Same for all versions and methods
     """
 
     if path.startswith("/"):

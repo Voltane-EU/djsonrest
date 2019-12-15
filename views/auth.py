@@ -1,6 +1,11 @@
+from django.conf import settings
 from djsonrest import rest
 
 
-@rest.route('/test', version=1.0, method='GET')
+@rest.route('/', version=1.0, method='GET', name='default')
 def test(request, *args, **kwargs):
-    return {}
+    return {
+        "name": getattr(settings, "TITLE", None),
+        "author": getattr(settings, "AUTHOR", None),
+        "version": getattr(settings, "GIT_VERSION_HEX", None),
+    }
