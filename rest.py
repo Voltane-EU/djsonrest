@@ -44,7 +44,7 @@ class RESTRouteVersionMethod:
             cache: callable = None,
             name: str = None,
         ):
-        if not path:
+        if not path and name != "default":
             raise exceptions.InvalidRouteError('Undefined path for %r' % route_func)
 
         if method not in self.HTTP_METHODS:
@@ -76,7 +76,7 @@ class RESTRouteVersionMethod:
     def __call__(self, request, *args, **kwargs):
         """
         Wrapper around the actual request method.
-        Performs authentication and loads the request body as json into request.body.
+        Performs authentication and loads the request body as json into request.body (encoding is fixed to UTF-8).
         Returns a dict with 'data' containing the returned data from the request method,
         if 'data' is not already present.
         Also converts the response data to a JsonResponse using @djutils.http.respond_json
@@ -85,7 +85,8 @@ class RESTRouteVersionMethod:
 
         # Load and replace the request body as json data
         request.body_bytes = request.body
-        request.body = json.load(request.body)
+        if request.body:
+            request.body = json.loads(request.body, encoding='utf-8')
 
         route_result = self.route_func(request, *args, **kwargs)
 
@@ -225,7 +226,7 @@ def route(
         path = path[1:]
 
     def rest_route_wrapper(route_func):
-        rest_route = RESTRouteVersionMethod(route_func, path, version, method, auth, cache)
+        rest_route = RESTRouteVersionMethod(route_func, path, version, method, auth, cache, name)
         route_func._rest_route = rest_route
         return rest_route
 
