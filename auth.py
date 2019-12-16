@@ -4,10 +4,8 @@ Authentication against the rest service.
 
 import logging
 from jose import jwt
-from django.conf import settings
 from django.utils.translation import gettext_noop
-from django.core.exceptions import ObjectDoesNotExist
-from . import exceptions, models
+from . import exceptions, app_settings
 
 
 _logger = logging.getLogger(__name__)
@@ -42,23 +40,17 @@ class Public(Authentication):
         return True
 
 
-class JWTAuthentication(Authentication):
+class AbstractJWTAuthentication(Authentication):
     audience = None
-    public_key_file = None
-    private_key_file = None
-    algorithm = 'ES512'
-    access_token = None
-    issuer = settings.TITLE
+    public_key_file = app_settings.JWT_PUBLIC_KEY_FILE
+    algorithm = app_settings.JWT_SIGNING_ALGORITHM
+    access_token = app_settings.JWT_ACCESS_TOKEN
+    issuer = app_settings.JWT_ISSUER
 
     @property
     def public_key(self):
         with open(self.public_key_file) as file:
             self.public_key = file.read()
-
-    @property
-    def private_key(self):
-        with open(self.private_key_file) as file:
-            self.private_key = file.read()
 
     def authenticate(self, request):
         token = None
@@ -78,20 +70,5 @@ class JWTAuthentication(Authentication):
         except jwt.JWTError as error:
             _logger.warning("Tried authentication with an invalid token: %e", error)
             raise exceptions.AuthenticationError(gettext_noop('Invalid authentication token'), code='signature_invalid') from error
-
-        return decoded_token
-
-
-class JWTConsumer(JWTAuthentication):
-    audience = 'consumer'
-
-    def authenticate(self, request):
-        decoded_token = super().authenticate(request)
-        try:
-            consumer = models.AuthConsumer.objects.get()
-        except ObjectDoesNotExist as error:
-            raise exceptions.AuthenticationError(gettext_noop('Invalid consumer'), code='consumer_invalid') from error
-
-        # TODO: Check session (maybe optional, configured by consumer)
 
         return decoded_token

@@ -7,6 +7,8 @@ import ipaddress
 from django.db import models
 from django.contrib.auth.hashers import make_password, check_password
 
+from .token import Token
+
 
 class AuthConsumer(models.Model):
     @classmethod
@@ -34,7 +36,7 @@ class AuthConsumer(models.Model):
     key = models.CharField(max_length=128)
     user = models.OneToOneField('User', on_delete=models.CASCADE, related_name='consumer')
     allowed_origin = models.CharField(max_length=255, help_text='Allowed origin which will be used in the Access-Control-Allow-Origin Header')
-    tokens = models.ManyToManyField('djsonrest.Token', related_name='consumer')
+    tokens = models.ManyToManyField(Token, related_name='consumer')
 
 
 class AuthConsumerIPRule(models.Model):
