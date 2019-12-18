@@ -7,7 +7,7 @@ import json
 
 from django.urls import path as url_path, register_converter
 from django.views.generic import View
-from django.http.response import HttpResponse
+from django.http.response import HttpResponse, Http404
 from djutils.http import exceptions_to_http, respond_json
 from . import exceptions, auth as rest_auth
 
@@ -17,7 +17,7 @@ rest_routes = {}
 
 
 class RESTVersionConverter:
-    regex = r'\d\.\d{1,2}'
+    regex = r'\d+\.\d{1,2}'
 
     @staticmethod
     def to_python(value):
@@ -50,10 +50,20 @@ class RESTRouteVersionMethod:
         if method not in self.HTTP_METHODS:
             raise exceptions.InvalidRouteError('Invalid method for %r' % route_func)
 
-        if not version:
-            version = 1.0
+        if version is None:
+            raise exceptions.InvalidRouteError("Specify a version for %r" % route_func)
+
         if isinstance(version, (float, int)):
             version = (version,)
+        elif not isinstance(version, tuple):
+            raise exceptions.InvalidRouteError("Specify the version as a single float number or a tuple of two numbers for %r" % route_func)
+
+        def check_version_number(nr):
+            if round(nr, 2) != nr:
+                raise exceptions.InvalidRouteError("Version number may has only 2 decimal places")
+
+        for vers_nr in version:
+            check_version_number(vers_nr)
 
         self.route_func = route_func
         self.path = path
@@ -88,7 +98,10 @@ class RESTRouteVersionMethod:
         if request.body:
             request.body = json.loads(request.body, encoding='utf-8')
 
-        route_result = self.route_func(request, *args, **kwargs)
+        if self.route_func.rest_dec.func_owner:
+            route_result = self.route_func(self.route_func.rest_dec.func_owner(), request, *args, **kwargs)
+        else:
+            route_result = self.route_func(request, *args, **kwargs)
 
         if 'data' in route_result:
             return route_result
@@ -175,10 +188,17 @@ class RESTRoute:
     def find_matching_version_route(self, version: float):
         version_routes = list(filter(
             lambda vers_nr: (len(vers_nr) == 1 and vers_nr[0] <= version) or (len(vers_nr) == 2 and vers_nr[0] <= version <= vers_nr[1]),
-            self.version_routes.keys()
+            sorted(self.version_routes.keys(), key=lambda vers_nr: vers_nr[0])
         ))
-        if len(version_routes) > 1:
-            raise exceptions.InvalidRouteError("Found multiple routes for version %f" % version)
+        # filter routes with smaller versions again when multile routes with open-ended versions are defined
+        # e.g. version_routes = [(1.0,), (2.0,)] and version = 2.0 or 2.2
+        while len(version_routes) > 1:
+            if version_routes[0][0] < version:
+                del version_routes[0]
+
+        if not version_routes:
+            _logger.info("No Route found for version %.2f", version)
+            raise Http404
 
         return self.version_routes[version_routes[0]]
 
@@ -201,33 +221,72 @@ class RESTRoute:
         return url_path(path, self.RESTRouteView.as_view(rest_route=self, **kwargs), name=self.name)
 
 
-def route(
-        path: str = "",
-        version=None,
-        method: str = 'GET',
-        auth: rest_auth.Authentication = rest_auth.Public,
-        cache: callable = None,
-        name: str = None,
-    ):
-    """
-    Declare a method as rest endpoint.
-    Params:
-    method: The HTTP Method
-    path: URL of the REST endpoint after the default path prefix and version number
-    version: A tuple containing the minimum and maximum version number for this endpoint (example: (min, max,)).
-             Can be a single float or int to only define the minimum version number.
-             The version numbers may have a maximum of 2 decimal places.
-    auth: Used authentication mechanism
-    cache: optional callable, only for GET requests, to determine if the ressource has changed
-    name: Optional name for the django route. Same for all versions and methods
-    """
+class RESTRouteDecorator:
+    func_owner = None
+    func_name = None
 
-    if path.startswith("/"):
-        path = path[1:]
+    class wrapper:
+        def __init__(self, fn):
+            self.fn = fn
+            self.rest_dec = fn.rest_dec
+            rest_route = RESTRouteVersionMethod(fn, self.rest_dec.path, self.rest_dec.version, self.rest_dec.method, self.rest_dec.auth, self.rest_dec.cache, self.rest_dec.name)
+            fn.rest_route = rest_route
 
-    def rest_route_wrapper(route_func):
-        rest_route = RESTRouteVersionMethod(route_func, path, version, method, auth, cache, name)
-        route_func.rest_route = rest_route
-        return route_func
+        def __set_name__(self, owner, name):
+            self.rest_dec.func_owner = owner
+            self.rest_dec.func_name = name
 
-    return rest_route_wrapper
+        def __get__(self, instance, owner):
+            if callable(self.fn):
+                def call(*args, **kwargs):
+                    return self.fn(instance, *args, **kwargs)
+
+                call.__name__ = self.fn.__name__
+                return call
+            return self.fn
+
+        def __call__(self, *args, **kwargs):
+            return self.fn(*args, **kwargs)
+
+    def __init__(
+            self,
+            path: str = "",
+            version=None,
+            method: str = 'GET',
+            auth: rest_auth.Authentication = rest_auth.Public,
+            cache: callable = None,
+            name: str = None,
+        ):
+        """
+        Declare a method as rest endpoint.
+        Params:
+        method: The HTTP Method
+        path: URL of the REST endpoint after the default path prefix and version number
+        version: A tuple containing the minimum and maximum version number for this endpoint (example: (min, max,)).
+                Can be a single float or int to only define the minimum version number.
+                The version numbers may have a maximum of 2 decimal places.
+        auth: Used authentication mechanism
+        cache: optional callable, only for GET requests, to determine if the ressource has changed
+        name: Optional name for the django route. Same for all versions and methods
+        """
+
+        if path.startswith("/"):
+            path = path[1:]
+
+        self.path = path
+        self.version = version
+        self.method = method
+        self.auth = auth
+        self.cache = cache
+        self.name = name
+
+    def __call__(self, fn):
+        fn.rest_dec = self
+        return self.wrapper(fn)
+
+
+class RESTRouteGroup:
+    pass
+
+
+route = RESTRouteDecorator
