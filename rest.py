@@ -4,6 +4,8 @@ Base Module of djsonrest containing interfaces to create rest routes
 
 import logging
 import json
+import enum
+import re
 
 from django.urls import path as url_path, register_converter
 from django.views.generic import View
@@ -17,18 +19,92 @@ rest_routes = {}
 
 
 class RESTVersionConverter:
-    regex = r'\d+\.\d{1,2}'
+    regex = r'(\d+)\.(\d{1,2})'
 
     @staticmethod
     def to_python(value):
-        return float(value)
+        value = re.match(RESTVersionConverter.regex, value)
+        return (int(value[1]), int(value[2]))
 
     @staticmethod
     def to_url(value):
-        return "%.2f" % value
+        return "%i.%i" % value
 
 
 register_converter(RESTVersionConverter, 'rest_version')
+
+
+class RESTVersionMatch(enum.Enum):
+    @classmethod
+    def FOLLOWING_MINOR(cls, version, other: tuple):
+        """ Inlcude all subsequent minor versions of the same major version """
+        if other[0] != version.major:
+            return False
+        if other[1] < version.minor:
+            return False
+
+        return True
+
+    @classmethod
+    def EQUAL(cls, version, other: tuple):
+        """ Include only this version """
+        if version.number != other:
+            return False
+
+        return True
+
+    @classmethod
+    def FOLLOWING_MAJOR_MINOR(cls, version, other: tuple):
+        """ Include all subsequent versions, including major version jumps """
+        if other[0] < version.major:
+            return False
+        if other[0] == version.major and other[1] < version.minor:
+            return False
+
+        return True
+
+
+class RESTVersion:
+    def __init__(self, number, match: callable = RESTVersionMatch.FOLLOWING_MINOR):
+        if isinstance(number, float):
+            if round(number, 2) != number:
+                raise exceptions.InvalidRouteError("Version number may has only 2 decimal places")
+
+            self.major = int(number)
+            minor = (number - self.major) * 10
+            if round(minor) != minor:
+                minor *= 10
+            self.minor = int(minor)
+            self.number = (self.major, self.minor)
+
+        elif isinstance(number, tuple):
+            self.major, self.minor = number
+            self.number = number
+
+        else:
+            raise exceptions.InvalidRouteError("Define the version as a float (major.minor) or tuple out of two integers (major, minor)")
+
+        self.match = match
+
+    def matches(self, other):
+        return self.match(self, other)
+
+    def __gt__(self, other):
+        return self.number > other.number
+
+    def __lt__(self, other):
+        return self.number < other.number
+
+    def __eq__(self, other):
+        return self.number == other.number
+
+    def __str__(self):
+        return f"RESTVersion({self.number}, match={self.match.__name__})"
+
+    __repr__ = __str__
+
+    def __hash__(self):
+        return hash((self.number, self.match))
 
 
 class RESTRouteVersionMethod:
@@ -54,16 +130,9 @@ class RESTRouteVersionMethod:
             raise exceptions.InvalidRouteError("Specify a version for %r" % route_func)
 
         if isinstance(version, (float, int)):
-            version = (version,)
-        elif not isinstance(version, tuple):
-            raise exceptions.InvalidRouteError("Specify the version as a single float number or a tuple of two numbers for %r" % route_func)
-
-        def check_version_number(nr):
-            if round(nr, 2) != nr:
-                raise exceptions.InvalidRouteError("Version number may has only 2 decimal places")
-
-        for vers_nr in version:
-            check_version_number(vers_nr)
+            version = RESTVersion(float(version))
+        elif not isinstance(version, RESTVersion):
+            raise exceptions.InvalidRouteError("Specify the version using RESTVersion() or a single float or int for %r" % route_func)
 
         self.route_func = route_func
         self.path = path
@@ -115,12 +184,9 @@ class RESTRouteVersion:
     def __init__(
             self,
             path: str = "",
-            version=None,
+            version: RESTVersion = None,
             name: str = None,
         ):
-        if not isinstance(version, tuple) or not version:
-            raise exceptions.InvalidRouteError('Invalid version "%r". Has to be a tuple containing at least one float value' % version)
-
         self.path = path
         self.version = version
         self.name = name
@@ -187,17 +253,13 @@ class RESTRoute:
 
     def find_matching_version_route(self, version: float):
         version_routes = list(filter(
-            lambda vers_nr: (len(vers_nr) == 1 and vers_nr[0] <= version) or (len(vers_nr) == 2 and vers_nr[0] <= version <= vers_nr[1]),
-            sorted(self.version_routes.keys(), key=lambda vers_nr: vers_nr[0])
+            lambda vers: vers.matches(version),
+            self.version_routes.keys()
         ))
-        # filter routes with smaller versions again when multile routes with open-ended versions are defined
-        # e.g. version_routes = [(1.0,), (2.0,)] and version = 2.0 or 2.2
-        while len(version_routes) > 1:
-            if version_routes[0][0] < version:
-                del version_routes[0]
+        version_routes = sorted(version_routes, reverse=True)
 
         if not version_routes:
-            _logger.info("No Route found for version %.2f", version)
+            _logger.info("No Route found for version %r", version)
             raise Http404
 
         return self.version_routes[version_routes[0]]

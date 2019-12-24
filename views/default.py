@@ -3,7 +3,7 @@ from djsonrest import rest
 
 
 class Default(rest.RESTRouteGroup):
-    @rest.route('/', version=0.0, method='GET', name='default')
+    @rest.route('/', version=rest.RESTVersion(0.0, match=rest.RESTVersionMatch.FOLLOWING_MAJOR_MINOR), method='GET', name='default')
     def default(self, request, *args, **kwargs):
         return {
             "name": getattr(settings, "TITLE", None),
