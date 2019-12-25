@@ -10,8 +10,9 @@ import re
 from django.urls import path as url_path, register_converter
 from django.views.generic import View
 from django.http.response import HttpResponse, Http404
-from djutils.http import exceptions_to_http, respond_json
-from . import exceptions, auth as rest_auth
+from django.core import exceptions as django_exceptions
+from djutils.http import error_respond_json, respond_json
+from . import exceptions, auth as rest_auth, app_settings
 
 
 _logger = logging.getLogger(__name__)
@@ -109,6 +110,34 @@ class RESTVersion:
 
 class RESTRouteVersionMethod:
     HTTP_METHODS = ('GET', 'POST', 'PUT', 'PATCH', 'DELETE')
+    handled_exceptions = (exceptions.Error,)
+
+    @classmethod
+    def _exception_to_manageable_error(cls, error):
+        return type(error.__class__.__name__, (exceptions.Error, error,), {})
+
+    def exception_handler(self, request):
+        try:
+            try:
+                yield
+
+            except (django_exceptions.ObjectDoesNotExist, django_exceptions.FieldDoesNotExist) as error:
+                raise self._exception_to_manageable_error(error)(*error.args[:2], status_code=404) from error
+
+            except django_exceptions.ValidationError as error:
+                raise self._exception_to_manageable_error(error)(
+                    message=error.message,
+                    code=error.code,
+                    params=error.params,
+                    status_code=400
+                ) from error
+
+            except django_exceptions.SuspiciousOperation as error:
+                raise self._exception_to_manageable_error(error)(*error.args[:2], status_code=403) from error
+
+        except self.handled_exceptions as error:
+            _logger.exception(error)
+            return error_respond_json(error, status_code=400)
 
     def __init__(
             self,
@@ -119,6 +148,7 @@ class RESTRouteVersionMethod:
             auth: rest_auth.Authentication = rest_auth.Public,
             cache: callable = None,
             name: str = None,
+            handled_exceptions: tuple = (),
         ):
         if not path and name != "default":
             raise exceptions.InvalidRouteError('Undefined path for %r' % route_func)
@@ -142,6 +172,11 @@ class RESTRouteVersionMethod:
         self.cache = cache
         self.name = name
 
+        if not handled_exceptions and self.auth.handled_exceptions:
+            handled_exceptions = self.auth.handled_exceptions
+        if handled_exceptions:
+            self.handled_exceptions += handled_exceptions
+
         self.route_version = RESTRoute.get_route(self.path).get_version_route(self.version, self.name)
         self.route_version.register_method_route(self)
 
@@ -150,32 +185,34 @@ class RESTRouteVersionMethod:
     def __str__(self):
         return f"RESTRouteMethod<{self.method} {self.path}, version={self.version}, auth={self.auth}, name={self.name}>"
 
-    @exceptions_to_http(exceptions.Error, status_code=400)
     @respond_json
     def __call__(self, request, *args, **kwargs):
         """
         Wrapper around the actual request method.
         Performs authentication and loads the request body as json into request.body (encoding is fixed to UTF-8).
+        Handles ocurring exceptions.
         Returns a dict with 'data' containing the returned data from the request method,
         if 'data' is not already present.
         Also converts the response data to a JsonResponse using @djutils.http.respond_json
         """
-        self.auth.authenticate(request)
 
-        # Load and replace the request body as json data
-        request.body_bytes = request.body
-        if request.body:
-            request.body = json.loads(request.body, encoding='utf-8')
+        with self.exception_hander(request):
+            self.auth.authenticate(request)
 
-        if self.route_func.rest_dec.func_owner:
-            route_result = self.route_func(self.route_func.rest_dec.func_owner(), request, *args, **kwargs)
-        else:
-            route_result = self.route_func(request, *args, **kwargs)
+            # Load and replace the request body as json data
+            request.body_bytes = request.body
+            if request.body:
+                request.body = json.loads(request.body, encoding='utf-8')
 
-        if 'data' in route_result:
-            return route_result
+            if self.route_func.rest_dec.func_owner:
+                route_result = self.route_func(self.route_func.rest_dec.func_owner(), request, *args, **kwargs)
+            else:
+                route_result = self.route_func(request, *args, **kwargs)
 
-        return {'data': route_result}
+            if 'data' in route_result:
+                return route_result
+
+            return {'data': route_result}
 
 
 class RESTRouteVersion:
@@ -279,7 +316,7 @@ class RESTRoute:
         delete = _rest_route_pass_to_version('delete')
 
     def as_path(self, **kwargs):
-        path = "<rest_version:version>/%s" % self.path
+        path = f"{app_settings.VERSION_PREFIX}<rest_version:version>/{self.path}"
         return url_path(path, self.RESTRouteView.as_view(rest_route=self, **kwargs), name=self.name)
 
 
@@ -291,7 +328,16 @@ class RESTRouteDecorator:
         def __init__(self, fn):
             self.fn = fn
             self.rest_dec = fn.rest_dec
-            rest_route = RESTRouteVersionMethod(fn, self.rest_dec.path, self.rest_dec.version, self.rest_dec.method, self.rest_dec.auth, self.rest_dec.cache, self.rest_dec.name)
+            rest_route = RESTRouteVersionMethod(
+                fn,
+                self.rest_dec.path,
+                self.rest_dec.version,
+                self.rest_dec.method,
+                self.rest_dec.auth,
+                self.rest_dec.cache,
+                self.rest_dec.name,
+                self.rest_dec.handled_exceptions
+            )
             fn.rest_route = rest_route
 
         def __set_name__(self, owner, name):
@@ -318,6 +364,7 @@ class RESTRouteDecorator:
             auth: rest_auth.Authentication = rest_auth.Public,
             cache: callable = None,
             name: str = None,
+            handled_exceptions: tuple = (),
         ):
         """
         Declare a method as rest endpoint.
@@ -341,6 +388,7 @@ class RESTRouteDecorator:
         self.auth = auth
         self.cache = cache
         self.name = name
+        self.handled_exceptions = handled_exceptions
 
     def __call__(self, fn):
         fn.rest_dec = self

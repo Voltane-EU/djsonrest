@@ -1,2 +1,2 @@
 python-jose
-djutils
+djutils >= 1.0.3
