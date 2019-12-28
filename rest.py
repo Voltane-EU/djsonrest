@@ -9,9 +9,8 @@ import re
 
 from django.urls import path as url_path, register_converter
 from django.views.generic import View
-from django.http.response import HttpResponse, Http404
-from django.core import exceptions as django_exceptions
-from djutils.http import error_respond_json, respond_json
+from django.http.response import HttpResponse
+from djutils.http import respond_json
 from . import exceptions, auth as rest_auth, app_settings
 
 
@@ -116,29 +115,6 @@ class RESTRouteVersionMethod:
     def _exception_to_manageable_error(cls, error):
         return type(error.__class__.__name__, (exceptions.Error, error,), {})
 
-    def exception_handler(self, request):
-        try:
-            try:
-                yield
-
-            except (django_exceptions.ObjectDoesNotExist, django_exceptions.FieldDoesNotExist) as error:
-                raise self._exception_to_manageable_error(error)(*error.args[:2], status_code=404) from error
-
-            except django_exceptions.ValidationError as error:
-                raise self._exception_to_manageable_error(error)(
-                    message=error.message,
-                    code=error.code,
-                    params=error.params,
-                    status_code=400
-                ) from error
-
-            except django_exceptions.SuspiciousOperation as error:
-                raise self._exception_to_manageable_error(error)(*error.args[:2], status_code=403) from error
-
-        except self.handled_exceptions as error:
-            _logger.exception(error)
-            return error_respond_json(error, status_code=400)
-
     def __init__(
             self,
             route_func: callable,
@@ -196,23 +172,26 @@ class RESTRouteVersionMethod:
         Also converts the response data to a JsonResponse using @djutils.http.respond_json
         """
 
-        with self.exception_hander(request):
-            self.auth.authenticate(request)
+        request.rest_request = self
 
-            # Load and replace the request body as json data
-            request.body_bytes = request.body
-            if request.body:
-                request.body = json.loads(request.body, encoding='utf-8')
+        self.auth.authenticate(request)
 
-            if self.route_func.rest_dec.func_owner:
-                route_result = self.route_func(self.route_func.rest_dec.func_owner(), request, *args, **kwargs)
-            else:
-                route_result = self.route_func(request, *args, **kwargs)
+        # Load and replace the request body as json data
+        request.body_bytes = request.body
+        if request.body:
+            request.body = json.loads(request.body, encoding='utf-8')
 
-            if 'data' in route_result:
-                return route_result
+        route_result = None
 
-            return {'data': route_result}
+        if self.route_func.rest_dec.func_owner:
+            route_result = self.route_func(self.route_func.rest_dec.func_owner(), request, *args, **kwargs)
+        else:
+            route_result = self.route_func(request, *args, **kwargs)
+
+        if 'data' in route_result:
+            return route_result
+
+        return {'data': route_result}
 
 
 class RESTRouteVersion:
@@ -297,7 +276,7 @@ class RESTRoute:
 
         if not version_routes:
             _logger.info("No Route found for version %r", version)
-            raise Http404
+            return app_settings.ROUTE_NOT_FOUND_VIEW
 
         return self.version_routes[version_routes[0]]
 

@@ -27,6 +27,16 @@ INSTALLED_APPS = [
 ]
 ```
 
+Add `djsonrest.middleware.RESTRoutesMiddleware` to your `MIDDLEWARE`.
+```python
+MIDDLEWARE = [
+    ...
+    'djsonrest.middleware.RESTRoutesMiddleware',
+]
+```
+If you want to customize the exception handling of rest routes override the `RESTRoutesMiddleware` class and
+configure your own middleware class instead.
+
 Add a path for the api endpoints to your urls.py's `urlpatterns`.
 ```python
 from djsonrest.urls import urlpatterns as rest_urlpatterns
