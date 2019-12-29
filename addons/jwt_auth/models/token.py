@@ -3,7 +3,7 @@ from jose import jwt
 from django.db import models
 from djutils.crypt import random_string_generator
 
-from djsonrest import app_settings
+from .. import app_settings
 
 
 def generate_token_id():
@@ -16,7 +16,7 @@ class Token(models.Model):
         with open(app_settings.JWT_PRIVATE_KEY_FILE) as key:
             return key.read()
 
-    def create_jwt_claims(self, expire=None, **claims):
+    def _jwt_claims(self, expire=None, **claims):
         curr_time = time.time()
         claims.update({
             'iss': app_settings.JWT_ISSUER,
@@ -24,11 +24,12 @@ class Token(models.Model):
             'exp': int(curr_time + (expire or app_settings.JWT_DEFAULT_EXPIRE)),
             'aud': self.audience,
             'sub': self.subject,
+            'jti': self.id,
         })
         return claims
 
-    def create_jwt(self):
-        claims = self.create_jwt_claims()
+    def as_jwt(self):
+        claims = self._jwt_claims()
         token = jwt.encode(
             claims=claims,
             key=self._jwt_read_private_key(),

@@ -6,16 +6,19 @@ import logging
 from jose import jwt
 from jose.exceptions import JOSEError
 from django.utils.translation import gettext_noop
+from django.core.exceptions import ObjectDoesNotExist
 from djsonrest.auth import Authentication
 from djsonrest import exceptions
 from . import app_settings
-from .models import Consumer
+from .models import Token
 
 
 _logger = logging.getLogger(__name__)
 
 
 class AbstractJWTAuthentication(Authentication):
+    __public_key = None
+
     audience = None
     public_key_file = app_settings.JWT_PUBLIC_KEY_FILE
     algorithm = app_settings.JWT_SIGNING_ALGORITHM
@@ -24,14 +27,23 @@ class AbstractJWTAuthentication(Authentication):
 
     @property
     def public_key(self):
+        if self.__public_key:
+            return self.__public_key
+
         if not self.public_key_file:
             raise exceptions.ConfigurationError('JWT Public Key not configured. Check your settings.')
 
         with open(self.public_key_file) as file:
-            self.public_key = file.read()
+            self.__public_key = file.read()
+
+        return self.__public_key
 
     def authenticate(self, request):
-        token = None
+        try:
+            auth_header = request.headers['Authorization']
+            _auth_type, token = auth_header.split(" ")
+        except (KeyError, ValueError,) as error:
+            raise exceptions.AuthenticationError('Authentication token required') from error
 
         try:
             decoded_token = jwt.decode(
@@ -57,5 +69,13 @@ class ConsumerAuth(AbstractJWTAuthentication):
 
     def authenticate(self, request):
         decoded_token = super().authenticate(request)
+
+        try:
+            token = Token.objects.get(id=decoded_token['jti'])
+        except (ObjectDoesNotExist, KeyError) as error:
+            raise exceptions.AuthenticationError from error
+
+        request.rest_consumer = token.consumer.first()
+        request.user = request.rest_consumer.user
 
         return decoded_token

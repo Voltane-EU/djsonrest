@@ -4,11 +4,14 @@ This module contains Database Models which persistently store data used for auth
 
 import uuid
 import ipaddress
+from datetime import timedelta
 from django.db import models
 from django.contrib.auth.hashers import make_password, check_password
 from django.conf import settings
+from django.utils import timezone
 
 from .token import Token
+from .. import app_settings
 
 
 class Consumer(models.Model):
@@ -27,6 +30,13 @@ class Consumer(models.Model):
 
     def set_key(self, key):
         self.key = self.key_hash(key)
+
+    def create_token(self):
+        return self.tokens.create(
+            expire_at=timezone.now() + timedelta(seconds=app_settings.CONSUMER_TOKEN_LIFETIME),
+            subject=str(self.uid),
+            audience='consumer',
+        )
 
     @property
     def allowed_ips(self):

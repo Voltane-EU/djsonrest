@@ -9,7 +9,7 @@ import re
 
 from django.urls import path as url_path, re_path, register_converter
 from django.views.generic import View
-from django.http.response import HttpResponse
+from django.http.response import HttpResponse, JsonResponse
 from django.utils.decorators import classonlymethod
 from djutils.http import respond_json
 from . import exceptions, auth as rest_auth, app_settings
@@ -123,6 +123,7 @@ class RESTRouteVersionMethod:
             version=None,
             method: str = 'GET',
             auth: rest_auth.Authentication = rest_auth.Public,
+            response_status: int = 200,
             cache: callable = None,
             name: str = None,
             handled_exceptions: tuple = (),
@@ -146,6 +147,7 @@ class RESTRouteVersionMethod:
         self.version = version
         self.method = method
         self.auth = auth(self)
+        self.response_status = response_status
         self.cache = cache
         self.name = name
 
@@ -174,10 +176,14 @@ class RESTRouteVersionMethod:
 
         self.auth.authenticate(request)
 
-        # Load and replace the request body as json data
-        request.body_bytes = request.body
-        if request.body:
-            request.body = json.loads(request.body, encoding='utf-8')
+        if request.method != 'GET':
+            try:
+                request.JSON = json.loads(request.body, encoding='utf-8') if request.body else {}
+            except json.JSONDecodeError as error:
+                raise exceptions.EncodingError(error.args[0]) from error
+
+        elif request.body:
+            raise exceptions.RequestError("A GET request may not have a request body")
 
         route_result = None
 
@@ -186,10 +192,10 @@ class RESTRouteVersionMethod:
         else:
             route_result = self.route_func(request, *args, **kwargs)
 
-        if isinstance(route_result, dict) and 'data' in route_result:
-            return route_result
+        if not (isinstance(route_result, dict) and 'data' in route_result):
+            route_result = {'data': route_result}
 
-        return {'data': route_result}
+        return JsonResponse(route_result, safe=False, status=self.response_status)
 
     def __str__(self):
         return f"RESTRouteVersionMethod({self.method} {self.path} @ {self.version}, auth={self.auth})"
@@ -339,6 +345,7 @@ class RESTRouteDecorator:
                 self.rest_dec.version,
                 self.rest_dec.method,
                 self.rest_dec.auth,
+                self.rest_dec.response_status,
                 self.rest_dec.cache,
                 self.rest_dec.name,
                 self.rest_dec.handled_exceptions
@@ -367,6 +374,7 @@ class RESTRouteDecorator:
             version=None,
             method: str = 'GET',
             auth: rest_auth.Authentication = rest_auth.Public,
+            response_status: int = 200,
             cache: callable = None,
             name: str = None,
             handled_exceptions: tuple = (),
@@ -391,6 +399,7 @@ class RESTRouteDecorator:
         self.version = version
         self.method = method
         self.auth = auth
+        self.response_status = response_status
         self.cache = cache
         self.name = name
         self.handled_exceptions = handled_exceptions

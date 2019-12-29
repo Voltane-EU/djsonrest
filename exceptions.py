@@ -10,9 +10,8 @@ class DJsonRestError(Error):
     Base Error of djsonrest
     """
 
-
-class InvalidRouteError(DJsonRestError):
-    pass
+    def __init__(self, message="", code=None, status_code=None, **kw):
+        super().__init__(message, code, status_code, **kw)
 
 
 class AuthenticationError(DJsonRestError):
@@ -21,3 +20,15 @@ class AuthenticationError(DJsonRestError):
 
 class ConfigurationError(DJsonRestError):
     status_code = 500
+
+
+class EncodingError(DJsonRestError):
+    status_code = 400
+
+
+class RequestError(DJsonRestError):
+    status_code = 400
+
+
+class InvalidRouteError(Exception):
+    pass
