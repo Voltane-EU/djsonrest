@@ -1,2 +1,3 @@
-from .auth import AuthConsumer, AuthConsumerIPRule
+from .consumer import Consumer, ConsumerIPRule
 from .token import Token
+from .user import UserToken

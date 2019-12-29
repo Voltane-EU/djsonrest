@@ -19,13 +19,14 @@ pip install djsonrest
 `djutils`
 
 ## Usage
-Add `djsonrest` to the end of `INSTALLED_APPS`.
+Add `djsonrest` to your `INSTALLED_APPS`.
 ```python
 INSTALLED_APPS = [
     ...
     'djsonrest',
 ]
 ```
+If you want to override default routes provided by djsonrest, order this app before your project app.
 
 Add `djsonrest.middleware.RESTRoutesMiddleware` to your `MIDDLEWARE`.
 ```python
@@ -39,15 +40,17 @@ configure your own middleware class instead.
 
 Add a path for the api endpoints to your urls.py's `urlpatterns`.
 ```python
-from djsonrest.urls import urlpatterns as rest_urlpatterns
+from djsonrest import rest
 
 urlpatterns = [
     ...
-    path('api/', include(rest_urlpatterns)),
+    path('api/', rest.routes.urls),
 ]
 ```
 
 Define your own rest route using the route decorator `@rest.route(...)`.
+All rest routes have to be defined in a module inside your app/project called `rest_routes`.
+Those module will be automatically loaded on django initialization and so the routes are being registered.
 ```python
 from djsonrest import rest
 

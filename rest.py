@@ -7,9 +7,10 @@ import json
 import enum
 import re
 
-from django.urls import path as url_path, register_converter
+from django.urls import path as url_path, re_path, register_converter
 from django.views.generic import View
 from django.http.response import HttpResponse
+from django.utils.decorators import classonlymethod
 from djutils.http import respond_json
 from . import exceptions, auth as rest_auth, app_settings
 
@@ -158,9 +159,6 @@ class RESTRouteVersionMethod:
 
         _logger.debug("Registered new rest route %r", self)
 
-    def __str__(self):
-        return f"RESTRouteMethod<{self.method} {self.path}, version={self.version}, auth={self.auth}, name={self.name}>"
-
     @respond_json
     def __call__(self, request, *args, **kwargs):
         """
@@ -188,10 +186,15 @@ class RESTRouteVersionMethod:
         else:
             route_result = self.route_func(request, *args, **kwargs)
 
-        if 'data' in route_result:
+        if isinstance(route_result, dict) and 'data' in route_result:
             return route_result
 
         return {'data': route_result}
+
+    def __str__(self):
+        return f"RESTRouteVersionMethod({self.method} {self.path} @ {self.version}, auth={self.auth})"
+
+    __repr__ = __str__
 
 
 class RESTRouteVersion:
@@ -208,6 +211,7 @@ class RESTRouteVersion:
         self.name = name
         self.route = RESTRoute.get_route(self.path)
         self.route.version_routes[self.version] = self
+        self.method_routes = {}
 
     def head(self, *args, **kwargs):
         if not self.get_cache:
@@ -226,12 +230,18 @@ class RESTRouteVersion:
 
     def register_method_route(self, method_route: RESTRouteVersionMethod):
         setattr(self, method_route.method.lower(), method_route)
+        self.method_routes[method_route.method] = method_route
 
         if method_route.method == "GET" and method_route.cache:
             self.get_cache = method_route.cache
 
         if method_route.name and not self.name:
             self.name = method_route.name
+
+    def __str__(self):
+        return f"RESTRouteVersion({self.path} @ {self.version})"
+
+    __repr__ = __str__
 
 
 def _rest_route_pass_to_version(method: str):
@@ -260,7 +270,7 @@ class RESTRoute:
 
         rest_routes[self.path] = self
 
-    def get_version_route(self, version: tuple, name: str = None):
+    def get_version_route(self, version, name: str = None):
         try:
             return self.version_routes[version]
         except KeyError:
@@ -294,9 +304,25 @@ class RESTRoute:
         patch = _rest_route_pass_to_version('patch')
         delete = _rest_route_pass_to_version('delete')
 
+        @classonlymethod
+        def as_view(cls, **initkwargs):
+            view = super().as_view(**initkwargs)
+            view.csrf_exempt = True
+            return view
+
+        def __str__(self):
+            return f"RESTRouteView for {self.rest_route}"
+
+        __repr__ = __str__
+
     def as_path(self, **kwargs):
-        path = f"{app_settings.VERSION_PREFIX}<rest_version:version>/{self.path}"
-        return url_path(path, self.RESTRouteView.as_view(rest_route=self, **kwargs), name=self.name)
+        route_path = f"{app_settings.VERSION_PREFIX}<rest_version:version>/{self.path}"
+        return url_path(route_path, self.RESTRouteView.as_view(rest_route=self, **kwargs), name=self.name)
+
+    def __str__(self):
+        return f"RESTRoute({self.path}, name={self.name})"
+
+    __repr__ = __str__
 
 
 class RESTRouteDecorator:
@@ -378,4 +404,22 @@ class RESTRouteGroup:
     pass
 
 
+class RESTRoutes:
+    def __init__(self):
+        self._registry = {}
+
+    @property
+    def urls(self):
+        urlpatterns = [
+            route.as_path() for route in rest_routes.values()
+        ]
+        urlpatterns += [
+            re_path(r"^(?P<path>.*)$", app_settings.ROUTE_NOT_FOUND_VIEW),
+            url_path("", app_settings.ROUTE_NOT_FOUND_VIEW),
+        ]
+
+        return urlpatterns, 'djsonrest', 'djsonrest'
+
+
 route = RESTRouteDecorator
+routes = RESTRoutes()

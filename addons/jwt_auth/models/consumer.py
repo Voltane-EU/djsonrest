@@ -6,11 +6,12 @@ import uuid
 import ipaddress
 from django.db import models
 from django.contrib.auth.hashers import make_password, check_password
+from django.conf import settings
 
 from .token import Token
 
 
-class AuthConsumer(models.Model):
+class Consumer(models.Model):
     @classmethod
     def key_hash(cls, key):
         """
@@ -24,6 +25,9 @@ class AuthConsumer(models.Model):
         """
         return check_password(key, self.key)
 
+    def set_key(self, key):
+        self.key = self.key_hash(key)
+
     @property
     def allowed_ips(self):
         return self.ip_rules.filtered(type='allow')
@@ -34,12 +38,13 @@ class AuthConsumer(models.Model):
 
     uid = models.UUIDField(primary_key=True, default=uuid.uuid4)
     key = models.CharField(max_length=128)
-    user = models.OneToOneField('User', on_delete=models.CASCADE, related_name='consumer')
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='consumer', help_text='Requests will be performed using this user')
     allowed_origin = models.CharField(max_length=255, help_text='Allowed origin which will be used in the Access-Control-Allow-Origin Header')
     tokens = models.ManyToManyField(Token, related_name='consumer')
+    ip_rules_active = models.BooleanField(default=False)
 
 
-class AuthConsumerIPRule(models.Model):
+class ConsumerIPRule(models.Model):
     RULE_TYPES = (
         ('allow', 'Allow'),
         ('deny', 'Deny'),
@@ -51,6 +56,6 @@ class AuthConsumerIPRule(models.Model):
 
         return super().save(force_insert, force_update, using, update_fields)
 
-    consumer = models.ForeignKey(AuthConsumer, on_delete=models.CASCADE, related_name='ip_rules')
+    consumer = models.ForeignKey(Consumer, on_delete=models.CASCADE, related_name='ip_rules')
     ip = models.CharField(max_length=196, help_text='IP Address or Subnet in CIDR Notation')
     type = models.CharField(max_length=8, choices=RULE_TYPES)

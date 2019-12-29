@@ -17,3 +17,7 @@ class InvalidRouteError(DJsonRestError):
 
 class AuthenticationError(DJsonRestError):
     status_code = 401
+
+
+class ConfigurationError(DJsonRestError):
+    status_code = 500

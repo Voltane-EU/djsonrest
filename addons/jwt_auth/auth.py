@@ -9,6 +9,7 @@ from django.utils.translation import gettext_noop
 from djsonrest.auth import Authentication
 from djsonrest import exceptions
 from . import app_settings
+from .models import Consumer
 
 
 _logger = logging.getLogger(__name__)
@@ -23,6 +24,9 @@ class AbstractJWTAuthentication(Authentication):
 
     @property
     def public_key(self):
+        if not self.public_key_file:
+            raise exceptions.ConfigurationError('JWT Public Key not configured. Check your settings.')
+
         with open(self.public_key_file) as file:
             self.public_key = file.read()
 
@@ -44,5 +48,14 @@ class AbstractJWTAuthentication(Authentication):
         except JOSEError as error:
             _logger.warning("Tried authentication with an invalid token: %e", error)
             raise exceptions.AuthenticationError(gettext_noop('Invalid authentication token'), code='token_invalid') from error
+
+        return decoded_token
+
+
+class ConsumerAuth(AbstractJWTAuthentication):
+    audience = 'consumer'
+
+    def authenticate(self, request):
+        decoded_token = super().authenticate(request)
 
         return decoded_token
