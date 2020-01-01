@@ -19,6 +19,7 @@ pip install djsonrest
 `djutils`
 
 ## Usage
+### Add to your django project
 Add `djsonrest` to your `INSTALLED_APPS`.
 ```python
 INSTALLED_APPS = [
@@ -48,16 +49,18 @@ urlpatterns = [
 ]
 ```
 
+### Define your routes
 Define your own rest route using the route decorator `@rest.route(...)`.
 All rest routes have to be defined in a module inside your app/project called `rest_routes`.
-Those module will be automatically loaded on django initialization and so the routes are being registered.
+This module will be automatically loaded on django initialization and so the routes are being registered.
+
 ```python
 from djsonrest import rest
 
 
 class Users(rest.RESTRouteGroup):
     @rest.route('/users', version=1.0, method='GET')
-    def users_get(self, request, *args, **kwargs):
+    def users_get(self, request):
         return [...] # Return any json-encodable object
 ```
 
@@ -66,17 +69,56 @@ To override the existing route, keep the route decorator the same. Change the ro
 ```python
 class MyUsers(Users):
     @rest.route('/users', version=1.0, method='GET')
-    def users_get(self, request, *args, **kwargs):
-        result = super().users_get(request, *args, **kwargs)
+    def users_get(self, request):
+        result = super().users_get(request)
         result.append([...])
         return result
 
 
 class MyUsersV2(Users):
     @rest.route('/users', version=2.0, method='GET')
-    def users_get(self, request, *args, **kwargs):
-        result = super().users_get(request, *args, **kwargs)
+    def users_get(self, request):
+        result = super().users_get(request)
         return {"users": result}
+```
+
+### Routes with authentication
+The route decorator provides an `auth` argument to which an auth class (a subclass of `djsonrest.auth.Authentication`) can be passed.
+The given auth class will be used to authenticate the request before its main processing.
+
+There are the following authentication classes already given:
+- `djsonrest.auth.Public` (default)
+  Public route, no authentication will be performed
+- `djsonrest.addons.jwt_auth.auth.AbstractJWTAuth` (abstract base class for JWT authentication)
+  Expects a JWT token in the `Authentication` HTTP-Header with the type `Bearer`
+- `djsonrest.addons.jwt_auth.auth.Consumer` (jwt_auth addon, extends `djsonrest.addons.jwt_auth.auth.AbstractJWTAuth`)
+  Expects a JWT token with the audience `consumer`. The request user will be the user that is defined in the consumer record
+- `djsonrest.addons.jwt_auth.auth.User` (jwt_auth addon, extends `djsonrest.addons.jwt_auth.auth.AbstractJWTAuth`)
+  Base of `UserStrong` and `UserWeak` auth. Expects a JWT token with an audience `user_strong` or `user_weak`
+  Tokens with the audience `user_strong` are only valid for 1 hour (default, can be canged in your settings), so you
+  can use those tokens for high risk endpoints which should be only available short time after the initial authentication
+  against the api
+  Tokens with the audience `user_weak` are valid for 30 days (default, can be changed in your settings), so those tokens
+  can be used for general interaction of a user with the api
+- `djsonrest.addons.jwt_auth.auth.UserStrong` (jwt_auth addon, extends `djsonrest.addons.jwt_auth.auth.AbstractJWTAuth`)
+  Like `User` auth, but only accepts tokens with the audience `user_strong`
+- `djsonrest.addons.jwt_auth.auth.UserWeak` (jwt_auth addon, extends `djsonrest.addons.jwt_auth.auth.AbstractJWTAuth`)
+  Like `User` auth, but only accepts tokens with the audience `user_weak`
+
+```python
+from djsonrest import rest
+from djsonrest.addons.jwt_auth import auth
+
+
+class Users(rest.RESTRouteGroup):
+    @rest.route('/users', version=1.0, method='GET', auth=auth.UserWeak)
+    def users_get(self, request):
+        return [...]
+
+    @rest.route('/users/<int:id>', version=1.0, method='PATCH', auth=auth.UserStrong)
+    def user_edit(self, request, id):
+        # high risk action, protected by a short life token
+        ...
 ```
 
 ## License
