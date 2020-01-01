@@ -45,6 +45,10 @@ class AbstractJWTAuthentication(Authentication):
         except (KeyError, ValueError,) as error:
             raise exceptions.AuthenticationError('Authentication token required') from error
 
+        options = {}
+        if not self.audience:
+            options['verify_aud'] = False
+
         try:
             decoded_token = jwt.decode(
                 token=token,
@@ -53,6 +57,7 @@ class AbstractJWTAuthentication(Authentication):
                 audience=self.audience,
                 issuer=self.issuer,
                 access_token=self.access_token,
+                options=options,
             )
         except jwt.ExpiredSignatureError as error:
             _logger.debug("Tried authentication with an expired token: %e", error)
@@ -64,7 +69,7 @@ class AbstractJWTAuthentication(Authentication):
         return decoded_token
 
 
-class ConsumerAuth(AbstractJWTAuthentication):
+class Consumer(AbstractJWTAuthentication):
     audience = 'consumer'
 
     def authenticate(self, request):
@@ -79,3 +84,29 @@ class ConsumerAuth(AbstractJWTAuthentication):
         request.user = request.rest_consumer.user
 
         return decoded_token
+
+
+class User(AbstractJWTAuthentication):
+
+    def authenticate(self, request):
+        decoded_token = super().authenticate(request)
+
+        if not self.audience and decoded_token.get('aud') not in ('user_strong', 'user_weak',):
+            raise exceptions.AuthenticationError
+
+        try:
+            token = Token.objects.get(id=decoded_token['jti'])
+        except (ObjectDoesNotExist, KeyError) as error:
+            raise exceptions.AuthenticationError from error
+
+        request.user = token.user_token.user
+
+        return decoded_token
+
+
+class UserStrong(User):
+    audience = 'user_strong'
+
+
+class UserWeak(User):
+    audience = 'user_weak'
