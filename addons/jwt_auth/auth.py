@@ -41,7 +41,9 @@ class AbstractJWTAuthentication(Authentication):
     def authenticate(self, request):
         try:
             auth_header = request.headers['Authorization']
-            _auth_type, token = auth_header.split(" ")
+            auth_type, token = auth_header.split(" ")
+            if auth_type != "Bearer":
+                raise exceptions.AuthenticationError('Authentication token malformed')
         except (KeyError, ValueError,) as error:
             raise exceptions.AuthenticationError('Authentication token required') from error
 
