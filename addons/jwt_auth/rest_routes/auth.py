@@ -45,7 +45,7 @@ class Auth(rest.RESTRouteGroup):
         data = {}
 
         if request.JSON.get('issue_weak', True):
-            token = user_create_token(user)
+            token = user_create_token(user, obtained_by=request.rest_consumer)
             jwt_token = token.as_jwt()
 
             data['weak'] = {
@@ -54,7 +54,7 @@ class Auth(rest.RESTRouteGroup):
             }
 
         if app_settings.USER_LOGIN_ISSUE_WEAK_AND_STRONG_TOKEN:
-            strong_token = user_create_token(user, audience='user_strong')
+            strong_token = user_create_token(user, audience='user_strong', obtained_by=request.rest_consumer)
             jwt_strong_token = strong_token.as_jwt()
 
             data['strong'] = {

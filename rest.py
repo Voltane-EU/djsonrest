@@ -173,6 +173,7 @@ class RESTRouteVersionMethod:
         """
 
         request.rest_request = self
+        cache_response = None
 
         self.auth.authenticate(request)
 
@@ -183,7 +184,11 @@ class RESTRouteVersionMethod:
                 raise exceptions.EncodingError(error.args[0]) from error
 
         elif request.body:
+            # GET Request with a request body
             raise exceptions.RequestError("A GET request may not have a request body")
+        elif self.cache:
+            # GET Request and cache function available
+            cache_response = self.cache(request, *args, **kwargs)
 
         route_result = None
 
@@ -195,7 +200,20 @@ class RESTRouteVersionMethod:
         if not (isinstance(route_result, dict) and 'data' in route_result):
             route_result = {'data': route_result}
 
-        return JsonResponse(route_result, safe=False, status=self.response_status)
+        response = JsonResponse(route_result, safe=False, status=self.response_status)
+
+        if cache_response:
+            try:
+                response['ETag'] = cache_response['ETag']
+            except KeyError:
+                pass
+
+            try:
+                response['Last-Modified'] = cache_response['Last-Modified']
+            except KeyError:
+                pass
+
+        return self.auth.response(request, response)
 
     def __str__(self):
         return f"RESTRouteVersionMethod({self.method} {self.path} @ {self.version}, auth={self.auth})"
@@ -219,11 +237,11 @@ class RESTRouteVersion:
         self.route.version_routes[self.version] = self
         self.method_routes = {}
 
-    def head(self, *args, **kwargs):
+    def head(self, request, *args, **kwargs):
         if not self.get_cache:
             return None
 
-        return self.get_cache()
+        return self.get_cache(request, *args, **kwargs)
 
     def _default_method_handler(self, *args, **kwargs):
         return HttpResponse(status=405)
@@ -388,7 +406,8 @@ class RESTRouteDecorator:
                 Can be a single float or int to only define the minimum version number.
                 The version numbers may have a maximum of 2 decimal places.
         auth: Used authentication mechanism
-        cache: optional callable, only for GET requests, to determine if the ressource has changed
+        cache: optional callable, only for GET requests, to determine if the ressource has changed.
+               The callable has to return a django HTTPResponse containing an ETag or Last-Modified (or both) header
         name: Optional name for the django route. Same for all versions and methods
         """
 

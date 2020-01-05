@@ -8,7 +8,7 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 from djutils.admin import one_to_many_link
 from djutils.crypt import random_string_generator
-from ..models import Consumer, ConsumerIPRule
+from ..models import Consumer, ConsumerRule
 
 
 class AdminCosumerChangeKeyForm(forms.Form):
@@ -35,9 +35,9 @@ class AdminCosumerChangeKeyForm(forms.Form):
         return self.consumer
 
 
-class ConsumerIPRuleInline(admin.TabularInline):
-    model = ConsumerIPRule
-    fiels = ('ip', 'type',)
+class ConsumerRuleInline(admin.TabularInline):
+    model = ConsumerRule
+    fiels = ('type', 'action', 'value',)
     extra = 1
 
 
@@ -102,14 +102,15 @@ class ConsumerAdmin(admin.ModelAdmin):
 
         return TemplateResponse(request, 'admin/consumer_change_key.html', context)
 
-    tokens_link = one_to_many_link('tokens', 'consumer', description='Tokens', link='Show')
-    list_display = ('uid', 'name',)
+    tokens_link = one_to_many_link('tokens', 'audience=consumer&consumer', description='Tokens', link='Show')
+    list_display = ('uid', 'name', 'rules_active',)
+    search_fields = ('=uid', 'user__username',)
     fieldsets = (
         (_('General'), {'fields': ('uid', 'user', 'change_key_link',)}),
-        (_('Access Control'), {'fields': ('ip_rules_active', 'tokens_link',)}),
+        (_('Access Control'), {'fields': ('rules_active', 'tokens_link',)}),
     )
     readonly_fields = ('uid', 'name', 'tokens_link', 'change_key_link',)
 
     inlines = [
-        ConsumerIPRuleInline,
+        ConsumerRuleInline,
     ]

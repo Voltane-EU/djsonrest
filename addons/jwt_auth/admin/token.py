@@ -12,3 +12,6 @@ class TokenAdmin(admin.ModelAdmin):
 
     list_display = ('id', 'subject', 'issued_at', 'expire_at', 'audience')
     fields = readonly_fields = list_display
+    ordering = ('-issued_at',)
+    search_fields = ('id', 'subject',)
+    list_filter = ('audience',)

@@ -33,6 +33,13 @@ class Authentication:
         """
         raise NotImplementedError
 
+    def response(self, request, response):
+        """
+        Wrapper to manipulate the successfull response before returning it.
+        Returns a django response object
+        """
+        return response
+
 
 class Public(Authentication):
     def authenticate(self, request):

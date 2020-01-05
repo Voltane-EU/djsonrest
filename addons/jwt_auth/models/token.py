@@ -43,3 +43,9 @@ class Token(models.Model):
     expire_at = models.DateTimeField()
     subject = models.CharField(max_length=128)
     audience = models.CharField(max_length=128)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=('subject',)),
+            models.Index(fields=('audience',)),
+        ]

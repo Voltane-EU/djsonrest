@@ -6,7 +6,7 @@ from .. import app_settings
 from .token import Token
 
 
-def user_create_token(user, audience='user_weak', lifetime=None):
+def user_create_token(user, audience='user_weak', lifetime=None, obtained_by=None):
     assert audience in ('user_weak', 'user_strong'), "The audience for user tokens has to be user_weak or user_strong"
 
     if not lifetime:
@@ -21,6 +21,10 @@ def user_create_token(user, audience='user_weak', lifetime=None):
         audience=audience,
     )
     user.user_tokens.create(token=token)
+
+    if obtained_by:
+        token.consumer.add(obtained_by)
+
     return token
 
 

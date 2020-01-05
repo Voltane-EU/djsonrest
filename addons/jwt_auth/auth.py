@@ -83,9 +83,19 @@ class Consumer(AbstractJWTAuthentication):
             raise exceptions.AuthenticationError from error
 
         request.rest_consumer = token.consumer.first()
+        request.rest_consumer.check_rules(request)
         request.user = request.rest_consumer.user
 
         return decoded_token
+
+    def response(self, request, response):
+        try:
+            response['Access-Control-Allowed-Origin'] = request._rest_jwt_consumer_acao
+            response['Vary'] = ("%s Origin" % response.get('Vary', '')).strip()
+        except AttributeError:
+            pass
+
+        return response
 
 
 class User(AbstractJWTAuthentication):
