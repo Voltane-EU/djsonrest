@@ -121,6 +121,19 @@ class Users(rest.RESTRouteGroup):
         ...
 ```
 
+### Remove an existing route
+This is intended to be used for unwanted routes a other app registers
+
+It is recommended that this is implemented in the `__init__.py` of the `rest_routes` module (or at the beginning if its just a file).
+It is possible to remove all routes with a given `path` (always required) or filter it by adding the version and method of the route to remove.
+```python
+from djsonrest import rest
+
+rest.remove('/unwanted/anything')
+rest.remove('/unwanted/route_at_version', version=1.0)
+rest.remove('/unwanted/method_route_at_version', version=1.0, method='GET')
+```
+
 ## License
 GNU GPLv3, see LICENSE
 

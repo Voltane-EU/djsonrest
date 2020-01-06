@@ -449,5 +449,28 @@ class RESTRoutes:
         return urlpatterns, 'djsonrest', 'djsonrest'
 
 
+def remove(path: str, version: RESTVersion = None, method: str = None):
+    """
+    Remove a defined rest route from the routing.
+    Specify at least the path; can be further filtered by specifying version and method.
+    """
+
+    if path.startswith("/"):
+        path = path[1:]
+
+    if method and version:
+        assert method in RESTRouteVersionMethod.HTTP_METHODS, "Invalid method"
+        route_version = rest_routes[path].version_routes[version]
+        setattr(route_version, method.lower(), getattr(route_version, '_default_method_handler'))
+    elif version:
+        if not isinstance(version, RESTVersion):
+            version = RESTVersion(version)
+        del rest_routes[path].version_routes[version]
+    else:
+        del rest_routes[path]
+
+    _logger.debug('Removed route "%s", version=%s, method=%s', path, version or 'any', method or 'any')
+
+
 route = RESTRouteDecorator
 routes = RESTRoutes()
