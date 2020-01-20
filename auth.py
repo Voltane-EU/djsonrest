@@ -3,12 +3,13 @@ Authentication against the rest service.
 """
 
 import logging
+from djutils import mixins
 
 
 _logger = logging.getLogger(__name__)
 
 
-class Authentication:
+class Authentication(mixins.CombineWithSubclassesMixin):
     """
     Base of all authentication classes.
     This class is an abstract class; create a subclass of it to implement you auth functions.
