@@ -18,6 +18,10 @@ class AuthenticationError(DJsonRestError):
     status_code = 401
 
 
+class AccessError(DJsonRestError):
+    status_code = 403
+
+
 class ConfigurationError(DJsonRestError):
     status_code = 500
 
