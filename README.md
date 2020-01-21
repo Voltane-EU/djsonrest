@@ -121,6 +121,21 @@ class Users(rest.RESTRouteGroup):
         ...
 ```
 
+#### Configure JWT Signing
+To use the jwt_auth addon, some settings have to be set and files created.
+
+Create private and public key files:
+```bash
+openssl ecparam -genkey -name secp521r1 -noout -out private.pem
+openssl ec -in private.pem -pubout -out public.pem
+```
+
+Set the path to those files in your `settings.py`:
+```python
+JWT_PRIVATE_KEY_FILE = os.path.join(BASE_DIR, 'keys', 'private.pem')
+JWT_PUBLIC_KEY_FILE = os.path.join(BASE_DIR, 'keys', 'public.pem')
+```
+
 ### Remove an existing route
 This is intended to be used for unwanted routes a other app registers
 

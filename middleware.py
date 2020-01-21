@@ -41,3 +41,15 @@ class RESTRoutesMiddleware:
         except Exception as handled_error: # pylint: disable=broad-except  # catch any other exception to return a nice json error message
             _logger.exception(handled_error)
             return error_respond_json(handled_error, status_code=500)
+
+
+class RESTRoutesAccessControlMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        response['Access-Control-Allow-Origin'] = response.get('Access-Control-Allow-Origin', '*')
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        return response

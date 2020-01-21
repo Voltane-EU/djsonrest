@@ -273,7 +273,10 @@ def _rest_route_pass_to_version(method: str):
         version_route = self.rest_route.find_matching_version_route(version)
         self.request.rest_version = version_route
         self.request.rest_version_requested = version
-        return getattr(version_route, method)(*args, **kwargs)
+        try:
+            return getattr(version_route, method)(*args, **kwargs)
+        except AttributeError:
+            return getattr(super(self.__class__, self), method)(*args, **kwargs)
 
     return rest_version_route
 
@@ -327,6 +330,7 @@ class RESTRoute:
         put = _rest_route_pass_to_version('put')
         patch = _rest_route_pass_to_version('patch')
         delete = _rest_route_pass_to_version('delete')
+        options = _rest_route_pass_to_version('options')
 
         @classonlymethod
         def as_view(cls, **initkwargs):

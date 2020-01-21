@@ -90,7 +90,7 @@ class Consumer(AbstractJWTAuthentication):
 
     def response(self, request, response):
         try:
-            response['Access-Control-Allowed-Origin'] = request._rest_jwt_consumer_acao
+            response['Access-Control-Allow-Origin'] = request._rest_jwt_consumer_acao
             response['Vary'] = ("%s Origin" % response.get('Vary', '')).strip()
         except AttributeError:
             pass
