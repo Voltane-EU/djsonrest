@@ -353,6 +353,38 @@ class RESTRoute:
     __repr__ = __str__
 
 
+class RESTApp:
+    def __init__(self, version: RESTVersion = None, auth: rest_auth.Authentication = None, name: str = None):
+        self.version = version
+        self.auth = auth
+        self.name = name
+        self.routes = []
+
+    def route(self, *args, **kwargs):
+        kwargs.update(app=self)
+        return RESTRouteDecorator(*args, **kwargs)
+
+    def get(self, *args, **kwargs):
+        kwargs.update(method="GET")
+        return self.route(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        kwargs.update(method="POST")
+        return self.route(*args, **kwargs)
+
+    def put(self, *args, **kwargs):
+        kwargs.update(method="PUT")
+        return self.route(*args, **kwargs)
+
+    def patch(self, *args, **kwargs):
+        kwargs.update(method="PATCH")
+        return self.route(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        kwargs.update(method="DELETE")
+        return self.route(*args, **kwargs)
+
+
 class RESTRouteDecorator:
     func_owner = None
     func_name = None
@@ -373,6 +405,9 @@ class RESTRouteDecorator:
                 self.rest_dec.handled_exceptions
             )
             fn.rest_route = rest_route
+
+            if self.rest_dec.app:
+                self.rest_dec.app.routes.append(rest_route)
 
         def __set_name__(self, owner, name):
             self.rest_dec.func_owner = owner
@@ -400,6 +435,7 @@ class RESTRouteDecorator:
             cache: callable = None,
             name: str = None,
             handled_exceptions: tuple = (),
+            app: RESTApp = None,
         ):
         """
         Declare a method as rest endpoint.
@@ -426,10 +462,58 @@ class RESTRouteDecorator:
         self.cache = cache
         self.name = name
         self.handled_exceptions = handled_exceptions
+        self.app = app
 
     def __call__(self, fn):
         fn.rest_dec = self
         return self.wrapper(fn)
+
+
+class RESTRouteDecoratorMethod(RESTRouteDecorator):
+    method = None
+
+    def __init__(
+            self,
+            path: str = "",
+            version=None,
+            auth: rest_auth.Authentication = rest_auth.Public,
+            response_status: int = 200,
+            cache: callable = None,
+            name: str = None,
+            handled_exceptions: tuple = (),
+            app: RESTApp = None,
+        ):
+        super().__init__(
+            path=path,
+            version=version,
+            method=self.method,
+            auth=auth,
+            response_status=response_status,
+            cache=cache,
+            name=name,
+            handled_exceptions=handled_exceptions,
+            app=app,
+        )
+
+
+class RESTRouteDecoratorMethodGET(RESTRouteDecoratorMethod):
+    method = 'GET'
+
+
+class RESTRouteDecoratorMethodPOST(RESTRouteDecoratorMethod):
+    method = 'POST'
+
+
+class RESTRouteDecoratorMethodPUT(RESTRouteDecoratorMethod):
+    method = 'PUT'
+
+
+class RESTRouteDecoratorMethodPATCH(RESTRouteDecoratorMethod):
+    method = 'PATCH'
+
+
+class RESTRouteDecoratorMethodDELETE(RESTRouteDecoratorMethod):
+    method = 'DELETE'
 
 
 class RESTRouteGroup:
@@ -477,4 +561,11 @@ def remove(path: str, version: RESTVersion = None, method: str = None):
 
 
 route = RESTRouteDecorator
+
+get = RESTRouteDecoratorMethodGET
+post = RESTRouteDecoratorMethodPOST
+put = RESTRouteDecoratorMethodPUT
+patch = RESTRouteDecoratorMethodPATCH
+delete = RESTRouteDecoratorMethodDELETE
+
 routes = RESTRoutes()
