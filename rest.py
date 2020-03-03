@@ -186,9 +186,18 @@ class RESTRouteVersionMethod:
         elif request.body:
             # GET Request with a request body
             raise exceptions.RequestError("A GET request may not have a request body")
-        elif self.cache:
-            # GET Request and cache function available
-            cache_response = self.cache(request, *args, **kwargs)
+        else:
+            if not self.cache and self.route_func.rest_dec.cache:
+                fn = self.route_func.rest_dec.cache
+                if self.route_func.rest_dec.func_owner:
+                    self.cache = lambda *args, **kwargs: fn(self.route_func.rest_dec.func_owner(), *args, **kwargs)
+
+                else:
+                    self.cache = fn
+
+            if self.cache:
+                # GET Request and cache function available
+                cache_response = self.cache(request, *args, **kwargs)
 
         route_result = None
 
@@ -205,12 +214,12 @@ class RESTRouteVersionMethod:
         if cache_response:
             try:
                 response['ETag'] = cache_response['ETag']
-            except KeyError:
+            except KeyError: # pylint: disable=except-pass
                 pass
 
             try:
                 response['Last-Modified'] = cache_response['Last-Modified']
-            except KeyError:
+            except KeyError: # pylint: disable=except-pass
                 pass
 
         return self.auth.response(request, response)
@@ -276,6 +285,10 @@ def _rest_route_pass_to_version(method: str):
         try:
             return getattr(version_route, method)(*args, **kwargs)
         except AttributeError:
+            if hasattr(version_route, method):
+                # error not caused by getattr(), may be caused inside call of route function, so reraise it
+                raise
+
             return getattr(super(self.__class__, self), method)(*args, **kwargs)
 
     return rest_version_route
@@ -353,47 +366,106 @@ class RESTRoute:
     __repr__ = __str__
 
 
+class RESTRouteGroup:
+    pass
+
+
 class RESTApp:
-    def __init__(self, version: RESTVersion = None, auth: rest_auth.Authentication = None, name: str = None):
+    def __init__(self, version: RESTVersion = None, auth: rest_auth.Authentication = rest_auth.Public, name: str = None):
         self.version = version
         self.auth = auth
         self.name = name
         self.routes = []
 
+    class RouteGroup(RESTRouteGroup):
+        pass
+
     def route(self, *args, **kwargs):
         kwargs.update(app=self)
+        if not kwargs.get('version'):
+            kwargs.update(version=self.version)
+
+        if not kwargs.get('auth'):
+            kwargs.update(auth=self.auth)
+
         return RESTRouteDecorator(*args, **kwargs)
 
-    def get(self, *args, **kwargs):
-        kwargs.update(method="GET")
-        return self.route(*args, **kwargs)
+    def get(
+            self,
+            path: str = "",
+            version=None,
+            auth: rest_auth.Authentication = None,
+            response_status: int = 200,
+            cache: callable = None,
+            name: str = None,
+            handled_exceptions: tuple = (),
+            **kwargs,
+        ):
+        kwargs.update(method="GET", path=path, version=version, auth=auth, response_status=response_status, cache=cache, name=name, handled_exceptions=handled_exceptions)
+        return self.route(**kwargs)
 
-    def post(self, *args, **kwargs):
-        kwargs.update(method="POST")
-        return self.route(*args, **kwargs)
+    def post(
+            self,
+            path: str = "",
+            version=None,
+            auth: rest_auth.Authentication = None,
+            response_status: int = 200,
+            name: str = None,
+            handled_exceptions: tuple = (),
+            **kwargs,
+        ):
+        kwargs.update(method="POST", path=path, version=version, auth=auth, response_status=response_status, name=name, handled_exceptions=handled_exceptions)
+        return self.route(**kwargs)
 
-    def put(self, *args, **kwargs):
-        kwargs.update(method="PUT")
-        return self.route(*args, **kwargs)
+    def put(
+            self,
+            path: str = "",
+            version=None,
+            auth: rest_auth.Authentication = None,
+            response_status: int = 200,
+            name: str = None,
+            handled_exceptions: tuple = (),
+            **kwargs,
+        ):
+        kwargs.update(method="PUT", path=path, version=version, auth=auth, response_status=response_status, name=name, handled_exceptions=handled_exceptions)
+        return self.route(**kwargs)
 
-    def patch(self, *args, **kwargs):
-        kwargs.update(method="PATCH")
-        return self.route(*args, **kwargs)
+    def patch(
+            self,
+            path: str = "",
+            version=None,
+            auth: rest_auth.Authentication = None,
+            response_status: int = 200,
+            name: str = None,
+            handled_exceptions: tuple = (),
+            **kwargs,
+        ):
+        kwargs.update(method="PATCH", path=path, version=version, auth=auth, response_status=response_status, name=name, handled_exceptions=handled_exceptions)
+        return self.route(**kwargs)
 
-    def delete(self, *args, **kwargs):
-        kwargs.update(method="DELETE")
-        return self.route(*args, **kwargs)
+    def delete(
+            self,
+            path: str = "",
+            version=None,
+            auth: rest_auth.Authentication = None,
+            response_status: int = 200,
+            name: str = None,
+            handled_exceptions: tuple = (),
+            **kwargs,
+        ):
+        kwargs.update(method="DELETE", path=path, version=version, auth=auth, response_status=response_status, name=name, handled_exceptions=handled_exceptions)
+        return self.route(**kwargs)
 
 
 class RESTRouteDecorator:
     func_owner = None
     func_name = None
 
-    class wrapper:
+    class Wrapper:
         def __init__(self, fn):
             self.fn = fn
             self.rest_dec = fn.rest_dec
-            rest_route = RESTRouteVersionMethod(
+            self.rest_route = RESTRouteVersionMethod(
                 fn,
                 self.rest_dec.path,
                 self.rest_dec.version,
@@ -404,10 +476,10 @@ class RESTRouteDecorator:
                 self.rest_dec.name,
                 self.rest_dec.handled_exceptions
             )
-            fn.rest_route = rest_route
+            fn.rest_route = self.rest_route
 
             if self.rest_dec.app:
-                self.rest_dec.app.routes.append(rest_route)
+                self.rest_dec.app.routes.append(self.rest_route)
 
         def __set_name__(self, owner, name):
             self.rest_dec.func_owner = owner
@@ -424,6 +496,13 @@ class RESTRouteDecorator:
 
         def __call__(self, *args, **kwargs):
             return self.fn(*args, **kwargs)
+
+        def cache(self, fn):
+            """
+            Define a cache method for a existing route
+            """
+            assert self.rest_dec.method == "GET"
+            self.rest_dec.cache = fn
 
     def __init__(
             self,
@@ -466,7 +545,7 @@ class RESTRouteDecorator:
 
     def __call__(self, fn):
         fn.rest_dec = self
-        return self.wrapper(fn)
+        return self.Wrapper(fn)
 
 
 class RESTRouteDecoratorMethod(RESTRouteDecorator):
@@ -514,10 +593,6 @@ class RESTRouteDecoratorMethodPATCH(RESTRouteDecoratorMethod):
 
 class RESTRouteDecoratorMethodDELETE(RESTRouteDecoratorMethod):
     method = 'DELETE'
-
-
-class RESTRouteGroup:
-    pass
 
 
 class RESTRoutes:
