@@ -127,6 +127,7 @@ class RESTRouteVersionMethod:
             cache: callable = None,
             name: str = None,
             handled_exceptions: tuple = (),
+            response_modifier: callable = None,
         ):
         if not path and name != "default":
             raise exceptions.InvalidRouteError('Undefined path for %r' % route_func)
@@ -150,6 +151,7 @@ class RESTRouteVersionMethod:
         self.response_status = response_status
         self.cache = cache
         self.name = name
+        self.response_modifier = response_modifier
 
         if not handled_exceptions and self.auth.handled_exceptions:
             handled_exceptions = self.auth.handled_exceptions
@@ -173,7 +175,7 @@ class RESTRouteVersionMethod:
         """
 
         request.rest_request = self
-        cache_response = None
+        cache_response = route_result = response = None
 
         self.auth.authenticate(request)
 
@@ -188,59 +190,52 @@ class RESTRouteVersionMethod:
             # GET Request with a request body
             raise exceptions.RequestError("A GET request may not have a request body")
 
-        else:
-            if not self.cache and self.route_func.rest_dec.cache:
-                fn = self.route_func.rest_dec.cache
-                if self.route_func.rest_dec.func_owner:
-                    self.cache = lambda *args, **kwargs: fn(self.route_func.rest_dec.func_owner(), *args, **kwargs)
+        elif self.cache:
+            # GET Request and cache function available
+            cache_response = self.cache(request, *args, **kwargs)
 
-                else:
-                    self.cache = fn
+            if cache_response:
+                try:
+                    if cache_response['ETag'] == request.headers['If-None-Match']:
+                        response = HttpResponseNotModified()
 
-            if self.cache:
-                # GET Request and cache function available
-                cache_response = self.cache(request, *args, **kwargs)
+                except KeyError: # pylint: disable=except-pass
+                    pass
 
-        if cache_response:
-            try:
-                if cache_response['ETag'] == request.headers['If-None-Match']:
-                    return HttpResponseNotModified()
+                try:
+                    if cache_response['Last-Modified'] == request.headers['If-Modified-Since']:
+                        response = HttpResponseNotModified()
 
-            except KeyError: # pylint: disable=except-pass
-                pass
+                except KeyError: # pylint: disable=except-pass
+                    pass
 
-            try:
-                if cache_response['Last-Modified'] == request.headers['If-Modified-Since']:
-                    return HttpResponseNotModified()
+        if not response:
+            if self.route_func.rest_dec.func_owner:
+                route_result = self.route_func(self.route_func.rest_dec.func_owner(), request, *args, **kwargs)
 
-            except KeyError: # pylint: disable=except-pass
-                pass
+            else:
+                route_result = self.route_func(request, *args, **kwargs)
 
-        route_result = None
+            if not (isinstance(route_result, dict) and 'data' in route_result):
+                route_result = {'data': route_result}
 
-        if self.route_func.rest_dec.func_owner:
-            route_result = self.route_func(self.route_func.rest_dec.func_owner(), request, *args, **kwargs)
+            response = JsonResponse(route_result, safe=False, status=self.response_status)
 
-        else:
-            route_result = self.route_func(request, *args, **kwargs)
+            if cache_response:
+                try:
+                    response['ETag'] = cache_response['ETag']
 
-        if not (isinstance(route_result, dict) and 'data' in route_result):
-            route_result = {'data': route_result}
+                except KeyError: # pylint: disable=except-pass
+                    pass
 
-        response = JsonResponse(route_result, safe=False, status=self.response_status)
+                try:
+                    response['Last-Modified'] = cache_response['Last-Modified']
 
-        if cache_response:
-            try:
-                response['ETag'] = cache_response['ETag']
+                except KeyError: # pylint: disable=except-pass
+                    pass
 
-            except KeyError: # pylint: disable=except-pass
-                pass
-
-            try:
-                response['Last-Modified'] = cache_response['Last-Modified']
-
-            except KeyError: # pylint: disable=except-pass
-                pass
+        if self.response_modifier:
+            response = self.response_modifier(request, response)
 
         return self.auth.response(request, response)
 
@@ -494,7 +489,8 @@ class RESTRouteDecorator:
                 self.rest_dec.response_status,
                 self.rest_dec.cache,
                 self.rest_dec.name,
-                self.rest_dec.handled_exceptions
+                self.rest_dec.handled_exceptions,
+                self.rest_dec.response_modifier,
             )
             fn.rest_route = self.rest_route
 
@@ -504,6 +500,15 @@ class RESTRouteDecorator:
         def __set_name__(self, owner, name):
             self.rest_dec.func_owner = owner
             self.rest_dec.func_name = name
+
+            # assign decorated handlers
+            handlers = ('cache', 'response_modifier',)
+            for handler in handlers:
+                fn = getattr(self.rest_dec, handler, None)
+                if not fn:
+                    continue
+
+                self._define_handler_function(handler, fn)
 
         def __get__(self, instance, owner):
             if callable(self.fn):
@@ -517,12 +522,23 @@ class RESTRouteDecorator:
         def __call__(self, *args, **kwargs):
             return self.fn(*args, **kwargs)
 
+        def _define_handler_function(self, handler, fn):
+            if self.rest_dec.func_owner:
+                # wrap handler for use in class
+                _fn = fn
+                fn = lambda *args, **kwargs: _fn(self.rest_dec.func_owner(), *args, **kwargs)
+
+            setattr(self.rest_route, handler, fn)
+
         def cache(self, fn):
             """
             Define a cache method for a existing route
             """
             assert self.rest_dec.method == "GET"
             self.rest_dec.cache = fn
+
+        def response_modifier(self, fn):
+            self.rest_dec.response_modifier = fn
 
     def __init__(
             self,
@@ -534,6 +550,7 @@ class RESTRouteDecorator:
             cache: callable = None,
             name: str = None,
             handled_exceptions: tuple = (),
+            response_modifier: callable = None,
             app: RESTApp = None,
         ):
         """
@@ -561,6 +578,7 @@ class RESTRouteDecorator:
         self.cache = cache
         self.name = name
         self.handled_exceptions = handled_exceptions
+        self.response_modifier = response_modifier
         self.app = app
 
     def __call__(self, fn):
