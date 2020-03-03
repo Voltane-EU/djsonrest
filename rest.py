@@ -9,7 +9,7 @@ import re
 
 from django.urls import path as url_path, re_path, register_converter
 from django.views.generic import View
-from django.http.response import HttpResponse, JsonResponse
+from django.http.response import HttpResponse, JsonResponse, HttpResponseNotModified
 from django.utils.decorators import classonlymethod
 from djutils.http import respond_json
 from . import exceptions, auth as rest_auth, app_settings
@@ -180,12 +180,14 @@ class RESTRouteVersionMethod:
         if request.method != 'GET':
             try:
                 request.JSON = json.loads(request.body, encoding='utf-8') if request.body else {}
+
             except json.JSONDecodeError as error:
                 raise exceptions.EncodingError(error.args[0]) from error
 
         elif request.body:
             # GET Request with a request body
             raise exceptions.RequestError("A GET request may not have a request body")
+
         else:
             if not self.cache and self.route_func.rest_dec.cache:
                 fn = self.route_func.rest_dec.cache
@@ -199,10 +201,26 @@ class RESTRouteVersionMethod:
                 # GET Request and cache function available
                 cache_response = self.cache(request, *args, **kwargs)
 
+        if cache_response:
+            try:
+                if cache_response['ETag'] == request.headers['If-None-Match']:
+                    return HttpResponseNotModified()
+
+            except KeyError: # pylint: disable=except-pass
+                pass
+
+            try:
+                if cache_response['Last-Modified'] == request.headers['If-Modified-Since']:
+                    return HttpResponseNotModified()
+
+            except KeyError: # pylint: disable=except-pass
+                pass
+
         route_result = None
 
         if self.route_func.rest_dec.func_owner:
             route_result = self.route_func(self.route_func.rest_dec.func_owner(), request, *args, **kwargs)
+
         else:
             route_result = self.route_func(request, *args, **kwargs)
 
@@ -214,11 +232,13 @@ class RESTRouteVersionMethod:
         if cache_response:
             try:
                 response['ETag'] = cache_response['ETag']
+
             except KeyError: # pylint: disable=except-pass
                 pass
 
             try:
                 response['Last-Modified'] = cache_response['Last-Modified']
+
             except KeyError: # pylint: disable=except-pass
                 pass
 
