@@ -20,7 +20,8 @@ class Token(models.Model):
         curr_time = time.time()
         exp_time = int(curr_time + app_settings.JWT_DEFAULT_EXPIRE)
         if expire:
-            exp_time = int(curr_time + expire) 
+            exp_time = int(curr_time + expire)
+
         elif self.expire_at:
             exp_time = self.expire_at.timestamp()
 
