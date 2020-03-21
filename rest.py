@@ -114,7 +114,7 @@ class RESTRouteVersionMethod:
 
     @classmethod
     def _exception_to_manageable_error(cls, error):
-        return type(error.__class__.__name__, (exceptions.Error, error,), {})
+        return type(error.__class__.__name__, (error.__class__, exceptions.Error,), {})
 
     def __init__(
             self,
