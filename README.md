@@ -121,6 +121,22 @@ class Users(rest.RESTRouteGroup):
         ...
 ```
 
+#### Multiple authentication methods
+If multiple authentication methods should be available, they can be combined to a `HybridAuth` using the `|`-Operator.
+Using a `HybridAuth` with the `|`-Operator, all of the combined authentication methods are tried after each other.
+This way, multiple available methods can be defined for a single route.
+
+```python
+from djsonrest import rest, auth
+from djsonrest.addons.jwt_auth import auth as jwt_auth
+
+
+class Users(rest.RESTRouteGroup):
+    @rest.route('/users', version=1.0, method='GET', auth=jwt_auth.UserWeak | auth.Public)
+    def users_get(self, request):
+        return [...]
+```
+
 #### Configure JWT Signing
 To use the jwt_auth addon, some settings have to be set and files created.
 

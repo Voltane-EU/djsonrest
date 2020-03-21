@@ -199,14 +199,14 @@ class RESTRouteVersionMethod:
                     if cache_response['ETag'] == request.headers['If-None-Match']:
                         response = HttpResponseNotModified()
 
-                except KeyError: # pylint: disable=except-pass
+                except KeyError:
                     pass
 
                 try:
                     if cache_response['Last-Modified'] == request.headers['If-Modified-Since']:
                         response = HttpResponseNotModified()
 
-                except KeyError: # pylint: disable=except-pass
+                except KeyError:
                     pass
 
         if not response:
@@ -225,13 +225,13 @@ class RESTRouteVersionMethod:
                 try:
                     response['ETag'] = cache_response['ETag']
 
-                except KeyError: # pylint: disable=except-pass
+                except KeyError:
                     pass
 
                 try:
                     response['Last-Modified'] = cache_response['Last-Modified']
 
-                except KeyError: # pylint: disable=except-pass
+                except KeyError:
                     pass
 
         if self.response_modifier:
