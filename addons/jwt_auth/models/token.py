@@ -18,10 +18,16 @@ class Token(models.Model):
 
     def _jwt_claims(self, expire=None, **claims):
         curr_time = time.time()
+        exp_time = int(curr_time + app_settings.JWT_DEFAULT_EXPIRE)
+        if expire:
+            exp_time = int(curr_time + expire) 
+        elif self.expire_at:
+            exp_time = self.expire_at.timestamp()
+
         claims.update({
             'iss': app_settings.JWT_ISSUER,
             'iat': int(curr_time),
-            'exp': int(curr_time + (expire or (self.expire_at and self.expire_at.timestamp()) or app_settings.JWT_DEFAULT_EXPIRE)),
+            'exp': exp_time,
             'aud': self.audience,
             'sub': self.subject,
             'jti': self.id,
