@@ -9,7 +9,7 @@ def dict_require_keys(d: dict, required: tuple):
     :param required: tuple: List of keys that are required to be set with a value
     """
     for key in required:
-        if not d.get(key) or (d.get(key).__class__ == str and not d.get(key).trim()):
+        if not d.get(key) or (d.get(key).__class__ == str and not d.get(key).strip()):
             raise exceptions.RequestError
 
 def dict_clean_others(d: dict, use: tuple):
