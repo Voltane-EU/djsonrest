@@ -19,10 +19,10 @@ class RESTRoutesMiddleware:
 
         try:
             if isinstance(error, (django_exceptions.ObjectDoesNotExist, django_exceptions.FieldDoesNotExist)):
-                raise self._exception_to_manageable_error(error)(*error.args[:2], status_code=404) from error
+                raise request.rest_request._exception_to_manageable_error(error)(*error.args[:2], status_code=404) from error
 
             if isinstance(error, django_exceptions.ValidationError):
-                raise self._exception_to_manageable_error(error)(
+                raise request.rest_request._exception_to_manageable_error(error)(
                     message=error.message,
                     code=error.code,
                     params=error.params,
@@ -30,7 +30,7 @@ class RESTRoutesMiddleware:
                 ) from error
 
             if isinstance(error, django_exceptions.SuspiciousOperation):
-                raise self._exception_to_manageable_error(error)(*error.args[:2], status_code=403) from error
+                raise request.rest_request._exception_to_manageable_error(error)(*error.args[:2], status_code=403) from error
 
             raise error
 
