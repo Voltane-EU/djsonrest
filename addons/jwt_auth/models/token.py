@@ -23,7 +23,7 @@ class Token(models.Model):
             exp_time = int(curr_time + expire)
 
         elif self.expire_at:
-            exp_time = self.expire_at.timestamp()
+            exp_time = int(self.expire_at.timestamp())
 
         claims.update({
             'iss': app_settings.JWT_ISSUER,
