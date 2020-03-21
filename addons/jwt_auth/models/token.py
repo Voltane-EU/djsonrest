@@ -21,7 +21,7 @@ class Token(models.Model):
         claims.update({
             'iss': app_settings.JWT_ISSUER,
             'iat': int(curr_time),
-            'exp': int(curr_time + (expire or app_settings.JWT_DEFAULT_EXPIRE)),
+            'exp': int(curr_time + (expire or (self.expire_at and self.expire_at.timestamp()) or app_settings.JWT_DEFAULT_EXPIRE)),
             'aud': self.audience,
             'sub': self.subject,
             'jti': self.id,
