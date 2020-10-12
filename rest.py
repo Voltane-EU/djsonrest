@@ -6,11 +6,13 @@ import logging
 import json
 import enum
 import re
+from typing import Optional
 
 from django.urls import path as url_path, re_path, register_converter
 from django.views.generic import View
-from django.http.response import HttpResponse, JsonResponse, HttpResponse, HttpResponseNotModified
+from django.http.response import HttpResponse, JsonResponse, HttpResponseNotModified
 from django.utils.decorators import classonlymethod
+from pydantic import BaseModel
 from djutils.http import respond_json
 from . import exceptions, auth as rest_auth, app_settings
 
@@ -123,14 +125,15 @@ class RESTRouteVersionMethod:
             self,
             route_func: callable,
             path: str = "",
-            version=None,
+            version: Optional = None,
             method: str = 'GET',
             auth: rest_auth.Authentication = rest_auth.Public,
             response_status: int = 200,
-            cache: callable = None,
-            name: str = None,
-            handled_exceptions: tuple = (),
-            response_modifier: callable = None,
+            cache: Optional[callable] = None,
+            name: Optional[str] = None,
+            handled_exceptions: Optional[tuple] = None,
+            response_modifier: Optional[callable] = None,
+            request_model: Optional[BaseModel] = None,
         ):
         if not path and name != "default":
             raise exceptions.InvalidRouteError('Undefined path for %r' % route_func)
@@ -155,6 +158,7 @@ class RESTRouteVersionMethod:
         self.cache = cache
         self.name = name
         self.response_modifier = response_modifier
+        self.request_model = request_model
 
         if not handled_exceptions and self.auth.handled_exceptions:
             handled_exceptions = self.auth.handled_exceptions
@@ -184,7 +188,11 @@ class RESTRouteVersionMethod:
 
         if request.method != 'GET':
             try:
-                request.JSON = json.loads(request.body, encoding='utf-8') if request.body else {}
+                if self.request_model:
+                    request.MODEL = self.request_model.parse_raw(request.body)
+
+                else:
+                    request.JSON = json.loads(request.body, encoding='utf-8') if request.body else {}
 
             except json.JSONDecodeError as error:
                 raise exceptions.EncodingError(error.args[0]) from error
@@ -388,97 +396,6 @@ class RESTRoute:
     __repr__ = __str__
 
 
-class RESTRouteGroup:
-    pass
-
-
-class RESTApp:
-    def __init__(self, version: RESTVersion = None, auth: rest_auth.Authentication = rest_auth.Public, name: str = None):
-        self.version = version
-        self.auth = auth
-        self.name = name
-        self.routes = []
-
-    class RouteGroup(RESTRouteGroup):
-        pass
-
-    def route(self, *args, **kwargs):
-        kwargs.update(app=self)
-        if not kwargs.get('version'):
-            kwargs.update(version=self.version)
-
-        if not kwargs.get('auth'):
-            kwargs.update(auth=self.auth)
-
-        return RESTRouteDecorator(*args, **kwargs)
-
-    def get(
-            self,
-            path: str = "",
-            version=None,
-            auth: rest_auth.Authentication = None,
-            response_status: int = 200,
-            cache: callable = None,
-            name: str = None,
-            handled_exceptions: tuple = (),
-            **kwargs,
-        ):
-        kwargs.update(method="GET", path=path, version=version, auth=auth, response_status=response_status, cache=cache, name=name, handled_exceptions=handled_exceptions)
-        return self.route(**kwargs)
-
-    def post(
-            self,
-            path: str = "",
-            version=None,
-            auth: rest_auth.Authentication = None,
-            response_status: int = 200,
-            name: str = None,
-            handled_exceptions: tuple = (),
-            **kwargs,
-        ):
-        kwargs.update(method="POST", path=path, version=version, auth=auth, response_status=response_status, name=name, handled_exceptions=handled_exceptions)
-        return self.route(**kwargs)
-
-    def put(
-            self,
-            path: str = "",
-            version=None,
-            auth: rest_auth.Authentication = None,
-            response_status: int = 200,
-            name: str = None,
-            handled_exceptions: tuple = (),
-            **kwargs,
-        ):
-        kwargs.update(method="PUT", path=path, version=version, auth=auth, response_status=response_status, name=name, handled_exceptions=handled_exceptions)
-        return self.route(**kwargs)
-
-    def patch(
-            self,
-            path: str = "",
-            version=None,
-            auth: rest_auth.Authentication = None,
-            response_status: int = 200,
-            name: str = None,
-            handled_exceptions: tuple = (),
-            **kwargs,
-        ):
-        kwargs.update(method="PATCH", path=path, version=version, auth=auth, response_status=response_status, name=name, handled_exceptions=handled_exceptions)
-        return self.route(**kwargs)
-
-    def delete(
-            self,
-            path: str = "",
-            version=None,
-            auth: rest_auth.Authentication = None,
-            response_status: int = 200,
-            name: str = None,
-            handled_exceptions: tuple = (),
-            **kwargs,
-        ):
-        kwargs.update(method="DELETE", path=path, version=version, auth=auth, response_status=response_status, name=name, handled_exceptions=handled_exceptions)
-        return self.route(**kwargs)
-
-
 class RESTRouteDecorator:
     func_owner = None
     func_name = None
@@ -489,15 +406,16 @@ class RESTRouteDecorator:
             self.rest_dec = fn.rest_dec
             self.rest_route = RESTRouteVersionMethod(
                 fn,
-                self.rest_dec.path,
-                self.rest_dec.version,
-                self.rest_dec.method,
-                self.rest_dec.auth,
-                self.rest_dec.response_status,
-                self.rest_dec.cache,
-                self.rest_dec.name,
-                self.rest_dec.handled_exceptions,
-                self.rest_dec.response_modifier,
+                path=self.rest_dec.path,
+                version=self.rest_dec.version,
+                method=self.rest_dec.method,
+                auth=self.rest_dec.auth,
+                response_status=self.rest_dec.response_status,
+                cache=self.rest_dec.cache,
+                name=self.rest_dec.name,
+                handled_exceptions=self.rest_dec.handled_exceptions,
+                response_modifier=self.rest_dec.response_modifier,
+                request_model=self.rest_dec.request_model,
             )
             fn.rest_route = self.rest_route
 
@@ -550,15 +468,16 @@ class RESTRouteDecorator:
     def __init__(
             self,
             path: str = "",
-            version=None,
+            version: Optional = None,
             method: str = 'GET',
             auth: rest_auth.Authentication = rest_auth.Public,
             response_status: int = 200,
-            cache: callable = None,
-            name: str = None,
-            handled_exceptions: tuple = (),
-            response_modifier: callable = None,
-            app: RESTApp = None,
+            cache: Optional[callable] = None,
+            name: Optional[str] = None,
+            handled_exceptions: Optional[tuple] = None,
+            response_modifier: Optional[callable] = None,
+            request_model: Optional[BaseModel] = None,
+            app=None,
         ):
         """
         Declare a method as rest endpoint.
@@ -586,11 +505,72 @@ class RESTRouteDecorator:
         self.name = name
         self.handled_exceptions = handled_exceptions
         self.response_modifier = response_modifier
+        self.request_model = request_model
         self.app = app
 
     def __call__(self, fn):
         fn.rest_dec = self
         return self.Wrapper(fn)
+
+
+class RESTRouteGroup:
+    pass
+
+
+class RESTApp:
+    def __init__(self, version: RESTVersion = None, auth: rest_auth.Authentication = rest_auth.Public, name: str = None):
+        self.version = version
+        self.auth = auth
+        self.name = name
+        self.routes = []
+
+    class RouteGroup(RESTRouteGroup):
+        pass
+
+    def route(self, *args, **kwargs):
+        kwargs.update(app=self)
+        if not kwargs.get('version'):
+            kwargs.update(version=self.version)
+
+        if not kwargs.get('auth'):
+            kwargs.update(auth=self.auth)
+
+        return RESTRouteDecorator(*args, **kwargs)
+
+    def get(
+            self,
+            **kwargs,
+        ):
+        kwargs.update(method="GET")
+        return self.route(**kwargs)
+
+    def post(
+            self,
+            **kwargs,
+        ):
+        kwargs.update(method="POST")
+        return self.route(**kwargs)
+
+    def put(
+            self,
+            **kwargs,
+        ):
+        kwargs.update(method="PUT")
+        return self.route(**kwargs)
+
+    def patch(
+            self,
+            **kwargs,
+        ):
+        kwargs.update(method="PATCH")
+        return self.route(**kwargs)
+
+    def delete(
+            self,
+            **kwargs,
+        ):
+        kwargs.update(method="DELETE")
+        return self.route(**kwargs)
 
 
 class RESTRouteDecoratorMethod(RESTRouteDecorator):
@@ -599,12 +579,14 @@ class RESTRouteDecoratorMethod(RESTRouteDecorator):
     def __init__(
             self,
             path: str = "",
-            version=None,
+            version: Optional = None,
             auth: rest_auth.Authentication = rest_auth.Public,
             response_status: int = 200,
-            cache: callable = None,
-            name: str = None,
-            handled_exceptions: tuple = (),
+            cache: Optional[callable] = None,
+            name: Optional[str] = None,
+            handled_exceptions: Optional[tuple] = None,
+            response_modifier: Optional[callable] = None,
+            request_model: Optional[BaseModel] = None,
             app: RESTApp = None,
         ):
         super().__init__(
@@ -616,6 +598,8 @@ class RESTRouteDecoratorMethod(RESTRouteDecorator):
             cache=cache,
             name=name,
             handled_exceptions=handled_exceptions,
+            response_modifier=response_modifier,
+            request_model=request_model,
             app=app,
         )
 
