@@ -52,4 +52,5 @@ class RESTRoutesAccessControlMiddleware:
         response['Access-Control-Allow-Origin'] = response.get('Access-Control-Allow-Origin', '*')
         response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
         response['Access-Control-Allow-Credentials'] = 'true'
+        response['Access-Control-Allow-Methods'] = ', '.join(request.rest_version.method_routes.keys())
         return response
