@@ -539,38 +539,43 @@ class RESTApp:
 
     def get(
             self,
+            *args,
             **kwargs,
         ):
         kwargs.update(method="GET")
-        return self.route(**kwargs)
+        return self.route(*args, **kwargs)
 
     def post(
             self,
+            *args,
             **kwargs,
         ):
         kwargs.update(method="POST")
-        return self.route(**kwargs)
+        return self.route(*args, **kwargs)
 
     def put(
             self,
+            *args,
             **kwargs,
         ):
         kwargs.update(method="PUT")
-        return self.route(**kwargs)
+        return self.route(*args, **kwargs)
 
     def patch(
             self,
+            *args,
             **kwargs,
         ):
         kwargs.update(method="PATCH")
-        return self.route(**kwargs)
+        return self.route(*args, **kwargs)
 
     def delete(
             self,
+            *args,
             **kwargs,
         ):
         kwargs.update(method="DELETE")
-        return self.route(**kwargs)
+        return self.route(*args, **kwargs)
 
 
 class RESTRouteDecoratorMethod(RESTRouteDecorator):
