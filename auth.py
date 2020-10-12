@@ -3,6 +3,7 @@ Authentication against the rest service.
 """
 
 import logging
+from django.http import HttpResponse
 from . import exceptions
 
 
@@ -98,7 +99,7 @@ class HybridAuth(Authentication):
 
         raise exceptions.AuthenticationError
 
-    def response(self, request, response):
+    def response(self, request, response: HttpResponse) -> HttpResponse:
         if not self.auth_used:
             return response
 

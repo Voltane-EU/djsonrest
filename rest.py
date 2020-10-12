@@ -9,7 +9,7 @@ import re
 
 from django.urls import path as url_path, re_path, register_converter
 from django.views.generic import View
-from django.http.response import HttpResponse, JsonResponse, HttpResponseNotModified
+from django.http.response import HttpResponse, JsonResponse, HttpResponse, HttpResponseNotModified
 from django.utils.decorators import classonlymethod
 from djutils.http import respond_json
 from . import exceptions, auth as rest_auth, app_settings
@@ -167,7 +167,7 @@ class RESTRouteVersionMethod:
         _logger.debug("Registered new rest route %r", self)
 
     @respond_json
-    def __call__(self, request, *args, **kwargs):
+    def __call__(self, request, *args, **kwargs) -> HttpResponse:
         """
         Wrapper around the actual request method.
         Performs authentication and loads the request body as json into request.body (encoding is fixed to UTF-8).
@@ -222,7 +222,11 @@ class RESTRouteVersionMethod:
             if not (isinstance(route_result, dict) and 'data' in route_result):
                 route_result = {'data': route_result}
 
-            response = JsonResponse(route_result, safe=False, status=self.response_status)
+            if self.response_status == 204:
+                response = HttpResponse(status=self.response_status)
+
+            else:
+                response = JsonResponse(route_result, safe=False, status=self.response_status)
 
             if cache_response:
                 try:
