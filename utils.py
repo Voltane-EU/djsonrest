@@ -69,10 +69,14 @@ def dict_clean_empty(d: dict, keys_to_keep: tuple = ()):
 
     return d
 
-def request_offset_limit(request):
+def request_offset_limit(request, default_limit=None, max_limit=None):
     offset = int(request.GET.get('offset', 0))
-    limit = None
+    limit = default_limit
     if request.GET.get('limit'):
-        limit = offset + int(request.GET.get('limit'))
+        if max_limit and request.GET.get('limit') > max_limit:
+            limit = offset + max_limit
+
+        else:
+            limit = offset + int(request.GET.get('limit'))
 
     return offset, limit
