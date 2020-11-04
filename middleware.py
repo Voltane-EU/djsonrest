@@ -49,7 +49,7 @@ class RESTRoutesAccessControlMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
-        if not hasattr(request, "rest_request"):
+        if not hasattr(request, "rest_version"):
             return response
 
         response['Access-Control-Allow-Origin'] = response.get('Access-Control-Allow-Origin', '*')
